@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--ck-accent);text-decoration:none}
+a:hover{color:var(--ck-accent-h)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--ck-border-strong);border-radius:6px}
+@keyframes ckpulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes ckspin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="--ck-bg:#1c1a17;--ck-surface:#23201c;--ck-surface-2:#2a2622;--ck-elevated:#302b26;--ck-border:#3a352f;--ck-border-strong:#4a443c;--ck-text:#ece7dd;--ck-text-2:#b7afa2;--ck-text-3:#877f72;--ck-success:#6db67f;--ck-warning:#d9a441;--ck-danger:#d97a67;--ck-info:#6fa3d1;--ck-accent:#cf6c40;--ck-accent-h:#dc7d52;--ck-accent-fg:#1c1512;--ck-shadow:0 1px 2px rgba(0,0,0,.4);--ck-shadow-lg:0 10px 30px rgba(0,0,0,.45);background:#1c1a17;color:#ece7dd;min-height:100vh;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;display:flex">
+
+<!-- ============ SIDEBAR ============ -->
+<nav style="width:236px;flex:none;background:var(--ck-surface);border-right:1px solid var(--ck-border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh">
+  <div style="padding:18px 18px 14px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--ck-border)">
+    <div style="width:32px;height:32px;border-radius:8px;background:var(--ck-accent);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2.5px;padding:6px;flex:none">
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+    </div>
+    <div style="font:800 16px/1 'Hanken Grotesk';letter-spacing:-.01em">Craft<span style="font-weight:500;color:var(--ck-accent)">Keeper</span></div>
+  </div>
+
+  <!-- server identity -->
+  <div style="margin:14px 12px;padding:12px 13px;background:var(--ck-elevated);border:1px solid var(--ck-border);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success);animation:ckpulse 2s infinite;flex:none"></span><span style="font:700 13px 'Hanken Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Survival</span></div>
+    <div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3);margin-top:4px">mc.example.net · Paper 1.21.4</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:9px;font:600 11px 'Hanken Grotesk';color:var(--ck-text-2)"><span style="width:6px;height:6px;border-radius:1px;background:var(--ck-success)"></span>3 / 40 online</div>
+  </div>
+
+  <div style="flex:1;overflow-y:auto;padding:4px 12px">
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;background:color-mix(in srgb,var(--ck-accent) 16%,transparent);color:var(--ck-accent-h);font:600 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;background:currentColor;opacity:.9;flex:none"></span>Overview</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Server</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Configurations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Plugins<span style="margin-left:auto;font:600 10px 'Hanken Grotesk';padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--ck-warning) 18%,transparent);color:var(--ck-warning)">2</span></div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Assistant</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Activity</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Integrations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Settings</div>
+  </div>
+
+  <div style="padding:12px;border-top:1px solid var(--ck-border);display:flex;align-items:center;gap:10px">
+    <div style="width:30px;height:30px;border-radius:7px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 12px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">A</div>
+    <div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">admin</div><div style="font:500 10px 'JetBrains Mono';color:var(--ck-text-3)">TOTP on</div></div>
+  </div>
+</nav>
+
+<!-- ============ MAIN ============ -->
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+  <!-- top bar -->
+  <div style="position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);background:color-mix(in srgb,var(--ck-bg) 82%,transparent);border-bottom:1px solid var(--ck-border);padding:11px 26px;display:flex;align-items:center;gap:14px">
+    <button style="cursor:text;display:flex;align-items:center;gap:10px;width:340px;max-width:38vw;padding:8px 12px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-surface);color:var(--ck-text-3);font:500 13px 'Hanken Grotesk';text-align:left"><span style="width:13px;height:13px;border-radius:3px;border:1.5px solid var(--ck-text-3)"></span><span style="flex:1">Search or run a command…</span><kbd style="font:600 10px 'JetBrains Mono';padding:2px 6px;border-radius:4px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);color:var(--ck-text-3)">⌘K</kbd></button>
+    <div style="flex:1"></div>
+    <div style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:6px;background:color-mix(in srgb,var(--ck-warning) 13%,transparent);color:var(--ck-warning);border:1px solid color-mix(in srgb,var(--ck-warning) 32%,transparent);font:600 12px 'Hanken Grotesk'"><span style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--ck-warning)"></span>Restart pending</div>
+    <div style="display:flex;align-items:center;gap:4px;padding:4px;background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:7px">
+      <button data-theme-btn="dark" onClick="{{ pickDark }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Dark</button>
+      <button data-theme-btn="light" onClick="{{ pickLight }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-border-strong);background:transparent;color:var(--ck-text-2)">Light</button>
+    </div>
+    <button style="cursor:pointer;width:34px;height:34px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-surface);color:var(--ck-text-2);position:relative"><span style="position:absolute;top:8px;left:50%;transform:translateX(-50%);width:12px;height:12px;border:1.5px solid currentColor;border-bottom:none;border-radius:6px 6px 0 0"></span><span style="position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:2px;background:var(--ck-danger)"></span></button>
+    <button style="cursor:pointer;height:34px;padding:0 13px;border-radius:7px;border:1px solid var(--ck-accent);background:color-mix(in srgb,var(--ck-accent) 14%,transparent);color:var(--ck-accent-h);font:600 12px 'Hanken Grotesk';display:inline-flex;align-items:center;gap:7px"><span style="width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,#c78fd0 25%,transparent);display:flex;align-items:center;justify-content:center;font:700 8px 'Hanken Grotesk';color:#d6a8dd">AI</span>Ask</button>
+  </div>
+
+  <!-- content -->
+  <div style="padding:26px 26px 48px;max-width:1160px;width:100%">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px">
+      <div>
+        <div style="font:600 11px/1 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--ck-text-3)">Operational briefing</div>
+        <h1 style="font:800 28px/1.1 'Hanken Grotesk';letter-spacing:-.02em;margin:9px 0 0">Overview</h1>
+      </div>
+      <div style="font:400 12px 'Hanken Grotesk';color:var(--ck-text-3)">Last connection 4s ago · uptime 6d 14h</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.62fr 1fr;gap:18px;align-items:start">
+      <!-- LEFT column -->
+      <div style="display:grid;gap:18px">
+        <!-- primary status -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:7px;background:color-mix(in srgb,var(--ck-success) 15%,transparent);color:var(--ck-success);border:1px solid color-mix(in srgb,var(--ck-success) 35%,transparent);font:700 14px 'Hanken Grotesk'"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);animation:ckpulse 2s infinite"></span>Online</span>
+            <span style="font:400 13px 'Hanken Grotesk';color:var(--ck-text-2)">Responsive · RCON connected</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px">
+            <div><div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">MINECRAFT</div><div style="font:700 15px 'Hanken Grotesk';margin-top:3px">1.21.4</div></div>
+            <div><div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">JAVA</div><div style="font:700 15px 'Hanken Grotesk';margin-top:3px">21.0.3</div></div>
+            <div><div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">GEYSER</div><div style="font:700 15px 'Hanken Grotesk';margin-top:3px">2.4.2</div></div>
+            <div><div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">FLOODGATE</div><div style="font:700 15px 'Hanken Grotesk';margin-top:3px">2.2.4</div></div>
+          </div>
+        </div>
+
+        <!-- resources -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><span style="font:700 15px 'Hanken Grotesk'">Resource snapshot</span><span style="font:400 11px 'Hanken Grotesk';color:var(--ck-text-3)">via RCON · 5s</span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+            <div>
+              <div style="display:flex;align-items:baseline;gap:6px"><span style="font:800 22px 'Hanken Grotesk'">19.8</span><span style="font:600 11px 'JetBrains Mono';color:var(--ck-success)">TPS</span></div>
+              <div style="height:6px;border-radius:3px;background:var(--ck-surface-2);margin-top:8px;overflow:hidden"><div style="width:99%;height:100%;background:var(--ck-success)"></div></div>
+              <div style="font:400 10.5px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:5px">Healthy · target 20.0</div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:6px"><span style="font:800 22px 'Hanken Grotesk'">42.1</span><span style="font:600 11px 'JetBrains Mono';color:var(--ck-warning)">MSPT</span></div>
+              <div style="height:6px;border-radius:3px;background:var(--ck-surface-2);margin-top:8px;overflow:hidden"><div style="width:66%;height:100%;background:var(--ck-warning)"></div></div>
+              <div style="font:400 10.5px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:5px">Elevated during chunk gen</div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:6px"><span style="font:800 22px 'Hanken Grotesk'">5.4</span><span style="font:600 11px 'JetBrains Mono';color:var(--ck-text-2)">/8 GB</span></div>
+              <div style="height:6px;border-radius:3px;background:var(--ck-surface-2);margin-top:8px;overflow:hidden"><div style="width:68%;height:100%;background:var(--ck-info)"></div></div>
+              <div style="font:400 10.5px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:5px">Heap · 68% used</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--ck-border)">
+            <span style="font:400 11px 'Hanken Grotesk';color:var(--ck-text-3)">Disk /minecraft</span>
+            <div style="flex:1;height:6px;border-radius:3px;background:var(--ck-surface-2);overflow:hidden"><div style="width:41%;height:100%;background:var(--ck-text-2)"></div></div>
+            <span style="font:600 11px 'JetBrains Mono';color:var(--ck-text-2)">24.6 / 60 GB</span>
+            <span style="font:400 11px 'Hanken Grotesk';color:var(--ck-text-3);border-left:1px solid var(--ck-border);padding-left:10px">CPU — <span style="font-style:italic">not reported</span></span>
+          </div>
+        </div>
+
+        <!-- recent activity -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font:700 15px 'Hanken Grotesk'">Recent activity</span><a href="#" style="font:600 12px 'Hanken Grotesk'">View all →</a></div>
+          <div style="display:grid">
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-info);flex:none"></span><span style="font:500 13px 'Hanken Grotesk';flex:1">Config saved · <code style="font-family:'JetBrains Mono';font-size:12px;color:var(--ck-text-2)">paper-global.yml</code> — pending restart</span><span style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">admin · 2h</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:500 13px 'Hanken Grotesk';flex:1">aacarm joined the game</span><span style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">server · 3h</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:#c78fd0;flex:none"></span><span style="font:500 13px 'Hanken Grotesk';flex:1">Assistant proposed a config change · <span style="color:var(--ck-text-3)">awaiting review</span></span><span style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">AI · 3h</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-warning);flex:none"></span><span style="font:500 13px 'Hanken Grotesk';flex:1">Update available · Geyser 2.4.2 → 2.4.5</span><span style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3)">catalog · 5h</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT column -->
+      <div style="display:grid;gap:18px">
+        <!-- attention -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px"><span style="font:700 15px 'Hanken Grotesk'">Needs attention</span><span style="font:700 10px 'Hanken Grotesk';padding:2px 7px;border-radius:10px;background:color-mix(in srgb,var(--ck-warning) 18%,transparent);color:var(--ck-warning)">3</span></div>
+          <div style="display:grid;gap:9px">
+            <div style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border-radius:8px;background:color-mix(in srgb,var(--ck-warning) 9%,var(--ck-elevated));border:1px solid color-mix(in srgb,var(--ck-warning) 26%,transparent)"><span style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--ck-warning);margin-top:4px;flex:none"></span><div style="flex:1"><div style="font:600 12.5px/1.4 'Hanken Grotesk'">Restart required to activate a saved change</div><a href="#" style="font:600 11.5px 'Hanken Grotesk'">Review &amp; restart →</a></div></div>
+            <div style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border-radius:8px;background:var(--ck-elevated);border:1px solid var(--ck-border)"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-warning);margin-top:4px;flex:none"></span><div style="flex:1"><div style="font:600 12.5px/1.4 'Hanken Grotesk'">Geyser update available</div><div style="font:400 11px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:1px">2.4.2 → 2.4.5 · compatible</div></div></div>
+            <div style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border-radius:8px;background:var(--ck-elevated);border:1px solid var(--ck-border)"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-danger);margin-top:4px;flex:none"></span><div style="flex:1"><div style="font:600 12.5px/1.4 'Hanken Grotesk'">Two JARs identify as the same plugin</div><div style="font:400 11px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:1px">Review before restart to avoid duplicate loading</div></div></div>
+          </div>
+        </div>
+
+        <!-- players -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><span style="font:700 15px 'Hanken Grotesk'">Players <span style="color:var(--ck-text-3);font-weight:500">· 3 online</span></span><a href="#" style="font:600 12px 'Hanken Grotesk'">Manage →</a></div>
+          <div style="display:grid;gap:4px">
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 0"><div style="width:28px;height:28px;border-radius:6px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 11px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">aa</div><span style="font:600 13px 'Hanken Grotesk';flex:1">aacarm</span><span style="padding:2px 6px;border-radius:4px;font:600 9px 'JetBrains Mono';background:color-mix(in srgb,var(--ck-info) 16%,transparent);color:var(--ck-info)">BEDROCK</span><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success)"></span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 0"><div style="width:28px;height:28px;border-radius:6px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 11px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">No</div><span style="font:600 13px 'Hanken Grotesk';flex:1">Notch_fan</span><span style="padding:2px 6px;border-radius:4px;font:600 9px 'JetBrains Mono';background:var(--ck-surface-2);color:var(--ck-text-2)">JAVA</span><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success)"></span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 0"><div style="width:28px;height:28px;border-radius:6px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 11px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">Re</div><span style="font:600 13px 'Hanken Grotesk';flex:1">RedstoneRae</span><span style="padding:2px 6px;border-radius:4px;font:600 9px 'JetBrains Mono';background:var(--ck-surface-2);color:var(--ck-text-2)">JAVA</span><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success)"></span></div>
+          </div>
+        </div>
+
+        <!-- quick actions -->
+        <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:10px;padding:20px;box-shadow:var(--ck-shadow)">
+          <div style="font:700 15px 'Hanken Grotesk';margin-bottom:14px">Quick actions</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text);text-align:left">Open console</button>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text);text-align:left">View logs</button>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text);text-align:left">Run server scan</button>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text);text-align:left">Back up configs</button>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid color-mix(in srgb,var(--ck-warning) 40%,transparent);background:color-mix(in srgb,var(--ck-warning) 12%,transparent);color:var(--ck-warning);text-align:left">Restart gracefully</button>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:10px;border-radius:7px;border:1px solid var(--ck-accent);background:color-mix(in srgb,var(--ck-accent) 14%,transparent);color:var(--ck-accent-h);text-align:left">Ask CraftKeeper</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1440, &quot;height&quot;: 940 },
+  &quot;theme&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot;, &quot;section&quot;: &quot;Theme&quot; },
+  &quot;accent&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;terracotta&quot;, &quot;options&quot;: [&quot;terracotta&quot;, &quot;emerald&quot;, &quot;slate&quot;, &quot;bronze&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Theme&quot; }
+}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: props.theme || 'dark', accent: props.accent || 'terracotta' };
+    this.THEMES = {
+      dark: { '--ck-bg':'#1c1a17','--ck-surface':'#23201c','--ck-surface-2':'#2a2622','--ck-elevated':'#302b26','--ck-border':'#3a352f','--ck-border-strong':'#4a443c','--ck-text':'#ece7dd','--ck-text-2':'#b7afa2','--ck-text-3':'#877f72','--ck-success':'#6db67f','--ck-warning':'#d9a441','--ck-danger':'#d97a67','--ck-info':'#6fa3d1','--ck-shadow':'0 1px 2px rgba(0,0,0,.4)','--ck-shadow-lg':'0 10px 30px rgba(0,0,0,.45)' },
+      light: { '--ck-bg':'#f1ece3','--ck-surface':'#faf7f1','--ck-surface-2':'#ece5d8','--ck-elevated':'#ffffff','--ck-border':'#e2dacb','--ck-border-strong':'#cabfa9','--ck-text':'#2b2620','--ck-text-2':'#5f584c','--ck-text-3':'#8a8174','--ck-success':'#3f8b57','--ck-warning':'#9a6c26','--ck-danger':'#b04d3c','--ck-info':'#3a6ea5','--ck-shadow':'0 1px 2px rgba(60,50,30,.08)','--ck-shadow-lg':'0 10px 30px rgba(60,50,30,.14)' }
+    };
+    this.ACCENTS = {
+      terracotta: { dark:['#cf6c40','#dc7d52','#1c1512'], light:['#b4552d','#a24a25','#ffffff'] },
+      emerald:    { dark:['#4fa87a','#5cb888','#0f1a14'], light:['#2f7d4f','#296e45','#ffffff'] },
+      slate:      { dark:['#5f97cf','#71a5d9','#0f151c'], light:['#2f6fb0','#2a63a0','#ffffff'] },
+      bronze:     { dark:['#bd9a54','#cba965','#1a160e'], light:['#7a6a3f','#6b5d37','#ffffff'] }
+    };
+  }
+  applyVars = (el) => {
+    if (el) this._root = el;
+    const root = this._root;
+    if (!root) return;
+    const t = this.THEMES[this.state.theme];
+    for (const k in t) root.style.setProperty(k, t[k]);
+    const a = this.ACCENTS[this.state.accent][this.state.theme];
+    root.style.setProperty('--ck-accent', a[0]);
+    root.style.setProperty('--ck-accent-h', a[1]);
+    root.style.setProperty('--ck-accent-fg', a[2]);
+    root.style.background = t['--ck-bg'];
+    root.style.color = t['--ck-text'];
+    root.querySelectorAll('[data-theme-btn]').forEach(b => {
+      const on = b.dataset.themeBtn === this.state.theme;
+      b.style.background = on ? 'var(--ck-accent)' : 'transparent';
+      b.style.color = on ? 'var(--ck-accent-fg)' : 'var(--ck-text-2)';
+      b.style.borderColor = on ? 'var(--ck-accent)' : 'var(--ck-border-strong)';
+    });
+  };
+  componentDidUpdate(prev) {
+    if (prev.theme !== this.props.theme || prev.accent !== this.props.accent) {
+      this.setState({ theme: this.props.theme || this.state.theme, accent: this.props.accent || this.state.accent });
+    } else {
+      this.applyVars();
+    }
+  }
+  pick(theme, accent) { this.setState(s => ({ theme: theme || s.theme, accent: accent || s.accent })); }
+  renderVals() {
+    return {
+      rootRef: this.applyVars,
+      pickDark: () => this.pick('dark', null),
+      pickLight: () => this.pick('light', null)
+    };
+  }
+}
+</script>
+</body>
+</html>

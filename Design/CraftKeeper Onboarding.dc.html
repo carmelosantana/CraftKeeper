@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--ck-accent);text-decoration:none}
+a:hover{color:var(--ck-accent-h)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--ck-border-strong);border-radius:6px}
+@keyframes ckpulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes ckspin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="--ck-bg:#1c1a17;--ck-surface:#23201c;--ck-surface-2:#2a2622;--ck-elevated:#302b26;--ck-border:#3a352f;--ck-border-strong:#4a443c;--ck-text:#ece7dd;--ck-text-2:#b7afa2;--ck-text-3:#877f72;--ck-success:#6db67f;--ck-warning:#d9a441;--ck-danger:#d97a67;--ck-info:#6fa3d1;--ck-accent:#cf6c40;--ck-accent-h:#dc7d52;--ck-accent-fg:#1c1512;--ck-shadow:0 1px 2px rgba(0,0,0,.4);--ck-shadow-lg:0 10px 30px rgba(0,0,0,.45);background:#1c1a17;color:#ece7dd;min-height:100vh;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased">
+
+<div style="position:fixed;top:16px;right:16px;z-index:30;display:flex;align-items:center;gap:4px;padding:4px;background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:7px">
+  <button data-theme-btn="dark" onClick="{{ pickDark }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Dark</button>
+  <button data-theme-btn="light" onClick="{{ pickLight }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-border-strong);background:transparent;color:var(--ck-text-2)">Light</button>
+</div>
+
+<div style="max-width:1160px;margin:0 auto;padding:56px 32px 64px">
+  <!-- brand + stepper -->
+  <div style="display:flex;align-items:center;gap:13px">
+    <div style="width:38px;height:38px;border-radius:9px;background:var(--ck-accent);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:3px;padding:7px;flex:none">
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+    </div>
+    <div style="font:800 19px/1 'Hanken Grotesk';letter-spacing:-.01em">Craft<span style="font-weight:500;color:var(--ck-accent)">Keeper</span></div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:9px;font:600 11px 'Hanken Grotesk';color:var(--ck-text-3)">
+      <span style="display:inline-flex;align-items:center;gap:6px;color:var(--ck-success)"><span style="width:16px;height:16px;border-radius:5px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 9px 'JetBrains Mono';color:var(--ck-bg)">✓</span>Admin</span>
+      <span style="width:16px;height:1px;background:var(--ck-border-strong)"></span>
+      <span style="display:inline-flex;align-items:center;gap:6px;color:var(--ck-accent-h)"><span style="width:16px;height:16px;border-radius:5px;background:var(--ck-accent);display:flex;align-items:center;justify-content:center;font:700 9px 'JetBrains Mono';color:var(--ck-accent-fg)">2</span>Scan</span>
+      <span style="width:16px;height:1px;background:var(--ck-border-strong)"></span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:16px;height:16px;border-radius:5px;border:1.5px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 9px 'JetBrains Mono'">3</span>Checklist</span>
+    </div>
+  </div>
+
+  <div style="margin-top:36px;max-width:620px">
+    <div style="font:600 11px/1 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--ck-accent)">First-run setup</div>
+    <h1 style="font:800 30px/1.12 'Hanken Grotesk';letter-spacing:-.02em;margin:12px 0 0">Reading your server</h1>
+    <p style="font:400 15px/1.6 'Hanken Grotesk';color:var(--ck-text-2);margin:12px 0 0">CraftKeeper is inspecting the mounted <code style="font-family:'JetBrains Mono';font-size:13px">/minecraft</code> volume to learn how your server is set up. Nothing is changed — this is read-only.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:20px;margin-top:26px;align-items:start">
+    <!-- scan results -->
+    <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;overflow:hidden;box-shadow:var(--ck-shadow)">
+      <div style="display:flex;align-items:center;gap:11px;padding:15px 18px;border-bottom:1px solid var(--ck-border)">
+        <span style="width:16px;height:16px;border:2px solid var(--ck-accent);border-right-color:transparent;border-radius:50%;animation:ckspin .8s linear infinite;flex:none"></span>
+        <span style="font:700 14px 'Hanken Grotesk'">Scanning /minecraft</span>
+        <span style="flex:1"></span>
+        <span style="font:600 12px 'JetBrains Mono';color:var(--ck-text-3)">6 / 9</span>
+      </div>
+      <div style="height:3px;background:var(--ck-surface-2)"><div style="width:67%;height:100%;background:var(--ck-accent)"></div></div>
+      <div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:20px;height:20px;border-radius:6px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 10px 'JetBrains Mono';color:var(--ck-bg);flex:none">✓</span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Minecraft directory found</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">/minecraft · read/write OK</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:20px;height:20px;border-radius:6px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 10px 'JetBrains Mono';color:var(--ck-bg);flex:none">✓</span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Server implementation detected</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">Paper · 1.21.4 · Java 21.0.3</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:20px;height:20px;border-radius:6px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 10px 'JetBrains Mono';color:var(--ck-bg);flex:none">✓</span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Geyser &amp; Floodgate present</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">Bedrock clients supported</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:20px;height:20px;border-radius:6px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 10px 'JetBrains Mono';color:var(--ck-bg);flex:none">✓</span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Configuration files discovered</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">41 files · 34 recognized</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:20px;height:20px;border-radius:6px;background:var(--ck-success);display:flex;align-items:center;justify-content:center;font:700 10px 'JetBrains Mono';color:var(--ck-bg);flex:none">✓</span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Plugins discovered</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">8 JARs · 1 duplicate flagged</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:16px;height:16px;border:2px solid var(--ck-accent);border-right-color:transparent;border-radius:50%;animation:ckspin .8s linear infinite;flex:none;margin:2px"></span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Checking RCON status…</div><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">connecting to 25575</code></div></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:13px 18px;opacity:.5"><span style="width:20px;height:20px;border-radius:6px;border:1.5px solid var(--ck-border-strong);flex:none"></span><div style="flex:1"><div style="font:600 13px 'Hanken Grotesk'">Log files · permissions · versions</div></div></div>
+      </div>
+    </div>
+
+    <!-- side: findings + welcome recap -->
+    <div style="display:grid;gap:18px">
+      <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;padding:18px;box-shadow:var(--ck-shadow)">
+        <div style="font:700 14px 'Hanken Grotesk';margin-bottom:12px">What we found so far</div>
+        <div style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border-radius:8px;background:color-mix(in srgb,var(--ck-danger) 9%,var(--ck-elevated));border:1px solid color-mix(in srgb,var(--ck-danger) 26%,transparent)"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-danger);margin-top:4px;flex:none"></span><div style="font:400 12px/1.5 'Hanken Grotesk'"><strong style="font-weight:700">Two JARs identify as the same plugin.</strong> <span style="color:var(--ck-text-2)">We'll help you review them before the first restart.</span></div></div>
+        <div style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border-radius:8px;background:var(--ck-elevated);border:1px solid var(--ck-border);margin-top:9px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success);margin-top:4px;flex:none"></span><div style="font:400 12px/1.5 'Hanken Grotesk';color:var(--ck-text-2)">Volume permissions look healthy — read and write both succeeded.</div></div>
+      </div>
+      <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;padding:18px;box-shadow:var(--ck-shadow)">
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:24px;height:24px;border-radius:6px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 11px 'Hanken Grotesk';color:var(--ck-text-2)">A</span><div><div style="font:700 13px 'Hanken Grotesk'">admin</div><div style="font:500 10px 'JetBrains Mono';color:var(--ck-text-3)">administrator secured</div></div><span style="margin-left:auto;font:600 10px 'Hanken Grotesk';color:var(--ck-success)">✓ Done</span></div>
+        <div style="font:400 11.5px/1.5 'Hanken Grotesk';color:var(--ck-text-3);margin-top:12px">This account has powerful access to your server's files and live commands. Enable TOTP after setup for a second factor.</div>
+      </div>
+      <button style="cursor:default;width:100%;font:600 13px 'Hanken Grotesk';padding:12px;border-radius:8px;border:1px solid var(--ck-border);background:var(--ck-surface-2);color:var(--ck-text-3);display:flex;align-items:center;justify-content:center;gap:9px"><span style="width:14px;height:14px;border:2px solid var(--ck-text-3);border-right-color:transparent;border-radius:50%;animation:ckspin .8s linear infinite"></span>Finishing scan…</button>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1160, &quot;height&quot;: 820 },
+  &quot;theme&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot;, &quot;section&quot;: &quot;Theme&quot; },
+  &quot;accent&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;terracotta&quot;, &quot;options&quot;: [&quot;terracotta&quot;, &quot;emerald&quot;, &quot;slate&quot;, &quot;bronze&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Theme&quot; }
+}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: props.theme || 'dark', accent: props.accent || 'terracotta' };
+    this.THEMES = {
+      dark: { '--ck-bg':'#1c1a17','--ck-surface':'#23201c','--ck-surface-2':'#2a2622','--ck-elevated':'#302b26','--ck-border':'#3a352f','--ck-border-strong':'#4a443c','--ck-text':'#ece7dd','--ck-text-2':'#b7afa2','--ck-text-3':'#877f72','--ck-success':'#6db67f','--ck-warning':'#d9a441','--ck-danger':'#d97a67','--ck-info':'#6fa3d1','--ck-shadow':'0 1px 2px rgba(0,0,0,.4)','--ck-shadow-lg':'0 10px 30px rgba(0,0,0,.45)' },
+      light: { '--ck-bg':'#f1ece3','--ck-surface':'#faf7f1','--ck-surface-2':'#ece5d8','--ck-elevated':'#ffffff','--ck-border':'#e2dacb','--ck-border-strong':'#cabfa9','--ck-text':'#2b2620','--ck-text-2':'#5f584c','--ck-text-3':'#8a8174','--ck-success':'#3f8b57','--ck-warning':'#9a6c26','--ck-danger':'#b04d3c','--ck-info':'#3a6ea5','--ck-shadow':'0 1px 2px rgba(60,50,30,.08)','--ck-shadow-lg':'0 10px 30px rgba(60,50,30,.14)' }
+    };
+    this.ACCENTS = {
+      terracotta: { dark:['#cf6c40','#dc7d52','#1c1512'], light:['#b4552d','#a24a25','#ffffff'] },
+      emerald:    { dark:['#4fa87a','#5cb888','#0f1a14'], light:['#2f7d4f','#296e45','#ffffff'] },
+      slate:      { dark:['#5f97cf','#71a5d9','#0f151c'], light:['#2f6fb0','#2a63a0','#ffffff'] },
+      bronze:     { dark:['#bd9a54','#cba965','#1a160e'], light:['#7a6a3f','#6b5d37','#ffffff'] }
+    };
+  }
+  applyVars = (el) => {
+    if (el) this._root = el;
+    const root = this._root;
+    if (!root) return;
+    const t = this.THEMES[this.state.theme];
+    for (const k in t) root.style.setProperty(k, t[k]);
+    const a = this.ACCENTS[this.state.accent][this.state.theme];
+    root.style.setProperty('--ck-accent', a[0]);
+    root.style.setProperty('--ck-accent-h', a[1]);
+    root.style.setProperty('--ck-accent-fg', a[2]);
+    root.style.background = t['--ck-bg'];
+    root.style.color = t['--ck-text'];
+    root.querySelectorAll('[data-theme-btn]').forEach(b => {
+      const on = b.dataset.themeBtn === this.state.theme;
+      b.style.background = on ? 'var(--ck-accent)' : 'transparent';
+      b.style.color = on ? 'var(--ck-accent-fg)' : 'var(--ck-text-2)';
+      b.style.borderColor = on ? 'var(--ck-accent)' : 'var(--ck-border-strong)';
+    });
+  };
+  componentDidUpdate(prev) {
+    if (prev.theme !== this.props.theme || prev.accent !== this.props.accent) {
+      this.setState({ theme: this.props.theme || this.state.theme, accent: this.props.accent || this.state.accent });
+    } else {
+      this.applyVars();
+    }
+  }
+  pick(theme, accent) { this.setState(s => ({ theme: theme || s.theme, accent: accent || s.accent })); }
+  renderVals() {
+    return {
+      rootRef: this.applyVars,
+      pickDark: () => this.pick('dark', null),
+      pickLight: () => this.pick('light', null)
+    };
+  }
+}
+</script>
+</body>
+</html>

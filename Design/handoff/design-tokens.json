@@ -1,0 +1,135 @@
+{
+  "$meta": {
+    "product": "CraftKeeper",
+    "description": "Design tokens for CraftKeeper. Values are applied at runtime as CSS custom properties (prefix --ck-) on the root element of each screen. Theme (dark|light) and accent (terracotta|emerald|slate|bronze) select which set is written.",
+    "license": "AGPL-3.0-or-later",
+    "version": "0.1",
+    "conventions": {
+      "cssVarPrefix": "--ck-",
+      "defaultTheme": "dark",
+      "defaultAccent": "terracotta",
+      "colorSpaceNotes": "Semantic tint backgrounds are produced at runtime with color-mix(in srgb, <token> <pct>%, transparent) — badge fills ~15%, badge borders ~35%, subtle surfaces ~8-10%."
+    }
+  },
+  "color": {
+    "neutral": {
+      "dark": {
+        "bg": "#1c1a17",
+        "surface": "#23201c",
+        "surface-2": "#2a2622",
+        "elevated": "#302b26",
+        "border": "#3a352f",
+        "border-strong": "#4a443c",
+        "text": "#ece7dd",
+        "text-2": "#b7afa2",
+        "text-3": "#877f72"
+      },
+      "light": {
+        "bg": "#f1ece3",
+        "surface": "#faf7f1",
+        "surface-2": "#ece5d8",
+        "elevated": "#ffffff",
+        "border": "#e2dacb",
+        "border-strong": "#cabfa9",
+        "text": "#2b2620",
+        "text-2": "#5f584c",
+        "text-3": "#8a8174"
+      },
+      "notes": "Warm, papery neutrals. text on surface contrast targets: text ~15:1, text-2 ~7:1, text-3 ~4.6:1 (WCAG 2.2 AA)."
+    },
+    "semantic": {
+      "dark": {
+        "success": "#6db67f",
+        "warning": "#d9a441",
+        "danger": "#d97a67",
+        "info": "#6fa3d1"
+      },
+      "light": {
+        "success": "#3f8b57",
+        "warning": "#9a6c26",
+        "danger": "#b04d3c",
+        "info": "#3a6ea5"
+      },
+      "usage": {
+        "success": "saved-and-active, healthy, completed, OK",
+        "warning": "pending-restart, degraded, needs-review, stale",
+        "danger": "failed, offline, destructive, rolled-back",
+        "info": "in-progress, scheduled, informational, pending-reload"
+      }
+    },
+    "accent": {
+      "description": "Primary action / active-nav / link color. Each accent provides [base, hover, foreground] per theme. foreground is the text/icon color used on top of the accent fill.",
+      "terracotta": { "dark": { "base": "#cf6c40", "hover": "#dc7d52", "fg": "#1c1512" }, "light": { "base": "#b4552d", "hover": "#a24a25", "fg": "#ffffff" } },
+      "emerald":    { "dark": { "base": "#4fa87a", "hover": "#5cb888", "fg": "#0f1a14" }, "light": { "base": "#2f7d4f", "hover": "#296e45", "fg": "#ffffff" } },
+      "slate":      { "dark": { "base": "#5f97cf", "hover": "#71a5d9", "fg": "#0f151c" }, "light": { "base": "#2f6fb0", "hover": "#2a63a0", "fg": "#ffffff" } },
+      "bronze":     { "dark": { "base": "#bd9a54", "hover": "#cba965", "fg": "#1a160e" }, "light": { "base": "#7a6a3f", "hover": "#6b5d37", "fg": "#ffffff" } },
+      "default": "terracotta"
+    },
+    "provenance": {
+      "description": "Categorical hues identifying where information or an action originated. Always paired with a text label; never color-only.",
+      "mounted-server": "#8fa4b8",
+      "catalog": "accent",
+      "hangar": "#a98fd0",
+      "modrinth": "#5cbd8a",
+      "documentation": "#4fb3b3",
+      "ai-provider": "#c78fd0",
+      "administrator": "text-2",
+      "api-mcp": "#d9a441"
+    },
+    "dataViz": {
+      "description": "Six harmonious series colors (charts ship a textual equivalent).",
+      "series": ["accent", "#6fa3d1", "#6db67f", "#d9a441", "#a98fd0", "#4fb3b3"]
+    },
+    "syntax": {
+      "dark": {
+        "comment": "#877f72",
+        "key": "#6fa3d1",
+        "string": "#8fbf87",
+        "number": "#d9a441",
+        "boolean": "#c78fd0",
+        "punctuation": "#877f72",
+        "diff-add-fg": "#6db67f",
+        "diff-del-fg": "#d97a67",
+        "diff-add-bg": "color-mix(in srgb, var(--ck-success) 15%, transparent)",
+        "diff-del-bg": "color-mix(in srgb, var(--ck-danger) 15%, transparent)"
+      }
+    }
+  },
+  "typography": {
+    "families": {
+      "sans": { "stack": "'Hanken Grotesk', system-ui, sans-serif", "role": "all UI text", "source": "Google Fonts", "weights": [400, 500, 600, 700, 800] },
+      "mono": { "stack": "'JetBrains Mono', monospace", "role": "paths, keys, code, console, diffs, IDs, timestamps", "source": "Google Fonts", "weights": [400, 500, 600] }
+    },
+    "scale": [
+      { "name": "display", "family": "sans", "size": 40, "weight": 800, "tracking": "-0.02em" },
+      { "name": "page-title", "family": "sans", "size": 28, "weight": 800, "tracking": "-0.02em" },
+      { "name": "section-title", "family": "sans", "size": 24, "weight": 700 },
+      { "name": "card-heading", "family": "sans", "size": 17, "weight": 600 },
+      { "name": "body", "family": "sans", "size": 14, "weight": 400, "lineHeight": 1.55 },
+      { "name": "label", "family": "sans", "size": 12, "weight": 600 },
+      { "name": "eyebrow", "family": "mono", "size": 11, "weight": 600, "tracking": "0.12em", "transform": "uppercase" },
+      { "name": "code", "family": "mono", "size": 12, "weight": 500 },
+      { "name": "micro", "family": "mono", "size": 10, "weight": 500 }
+    ],
+    "minimums": { "desktopBodyPx": 12, "mobileHitTargetPx": 44 }
+  },
+  "spacing": { "base": 4, "scale": { "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "2xl": 40 } },
+  "radius": { "sm": 2, "input": 6, "button": 6, "badge": 5, "card": 9, "modal": 12, "pill": 14 },
+  "elevation": {
+    "e0": "border only, no shadow",
+    "e1": { "dark": "0 1px 2px rgba(0,0,0,.4)", "light": "0 1px 2px rgba(60,50,30,.08)", "role": "raised card" },
+    "e2": { "dark": "0 10px 30px rgba(0,0,0,.45)", "light": "0 10px 30px rgba(60,50,30,.14)", "role": "popover / modal / drawer" }
+  },
+  "layout": {
+    "sidebarWidth": 236,
+    "contentMaxWidth": 1160,
+    "designWidthDesktop": 1440,
+    "phoneWidth": 322,
+    "breakpoints": { "mobile": 480, "tablet": 768, "desktop": 1024 }
+  },
+  "motion": {
+    "pulse": "2s ease-in-out infinite (live/online indicators)",
+    "spin": "0.7-0.8s linear infinite (loading)",
+    "reducedMotion": "honor prefers-reduced-motion: disable pulse/spin/shimmer"
+  }
+}

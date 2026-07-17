@@ -1,0 +1,106 @@
+{
+  "$meta": {
+    "product": "CraftKeeper",
+    "description": "Delivered screen inventory. Each entry maps a mockup file to the design-brief section(s) it realizes and the screens contained within it.",
+    "version": "0.1",
+    "format": "Each file is a standalone Design Component (.dc.html) that opens in a browser. Theme (dark|light) and accent are live props on every file; default is dark + terracotta. The app-shell markup is duplicated per file intentionally (for design iteration) — consolidate into one layout in code."
+  },
+  "foundation": [
+    {
+      "file": "CraftKeeper Design Kit.dc.html",
+      "title": "Design system kit",
+      "covers": ["brand marks (logo, app mark, monochrome, favicon)", "color system", "provenance / data-viz / syntax palettes", "typography", "spacing / radius / elevation tokens", "core component gallery"],
+      "briefSections": ["Visual identity", "Design system", "Important shared components"]
+    }
+  ],
+  "screens": [
+    {
+      "file": "CraftKeeper Onboarding.dc.html",
+      "screens": ["welcome / admin creation (recap)", "initial server scan"],
+      "briefSections": ["1.1", "1.4", "1.5"]
+    },
+    {
+      "file": "CraftKeeper Login.dc.html",
+      "screens": ["login", "TOTP step", "rate-limit / lockout messaging"],
+      "briefSections": ["1.2", "1.3"]
+    },
+    {
+      "file": "CraftKeeper Overview.dc.html",
+      "screens": ["overview / operational briefing"],
+      "briefSections": ["2"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Server.dc.html",
+      "screens": ["server status", "players list", "player detail drawer"],
+      "briefSections": ["3.1", "3.2", "3.3"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Console.dc.html",
+      "screens": ["RCON console", "command composer (AI)", "saved command templates"],
+      "briefSections": ["3.4", "3.5", "3.6"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Logs.dc.html",
+      "screens": ["logs (filter, tail, selection)", "incident investigation workspace"],
+      "briefSections": ["3.7", "3.8"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Config Editor.dc.html",
+      "screens": ["configuration detail — guided form", "pending change review + diff", "documentation panel"],
+      "briefSections": ["4.2", "4.3"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Plugin Discovery.dc.html",
+      "screens": ["discover plugins (unified marketplace across Catalog / Hangar / Modrinth)"],
+      "briefSections": ["5.3", "5.4"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Assistant.dc.html",
+      "screens": ["assistant workspace", "AI answer with source citations", "proposed config change", "hosted-provider redaction review modal"],
+      "briefSections": ["6.2", "6.3", "6.4", "6.6"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Activity.dc.html",
+      "screens": ["activity timeline", "activity detail (expanded row)", "snapshot restore review modal"],
+      "briefSections": ["7.1", "7.2", "7.7"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Integrations.dc.html",
+      "screens": ["integrations overview", "AI provider setup", "RCON setup", "API token management", "MCP clients & grants"],
+      "briefSections": ["8.1", "8.2", "8.3", "8.4", "8.6"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Settings.dc.html",
+      "screens": ["account & security (summary)", "diagnostics", "recent errors"],
+      "briefSections": ["9.1", "9.8"],
+      "shell": true
+    },
+    {
+      "file": "CraftKeeper Mobile.dc.html",
+      "screens": ["mobile overview", "nav drawer", "mobile console", "mobile approval bottom-sheet"],
+      "briefSections": ["Responsive behavior", "45 (representative mobile screens)"],
+      "canvas": true
+    }
+  ],
+  "primaryNavigation": ["Overview", "Server", "Configurations", "Plugins", "Assistant", "Activity", "Integrations", "Settings"],
+  "notMockedYet": {
+    "note": "Screens in the brief not yet built as dedicated mockups; the patterns exist in the kit and can be composed by engineering, or requested as further mockups.",
+    "screens": ["generic structured editor (4.2)", "conflict resolution (4.4)", "save result states (4.5)", "config history/restore full (4.6/4.7)", "installed plugins list + detail (5.1/5.2)", "install/update plan (5.5/5.6)", "JAR upload (5.7)", "disable/remove flow (5.8)", "pending plugin operations (5.9)", "contextual assistant drawer (6.1)", "AI RCON proposal standalone (6.5)", "AI unavailable full state (6.7)", "snapshot browser (7.3)", "backup/restore state (7.4)", "API documentation (8.5)", "MCP capabilities (8.7)", "catalog sources (8.8)", "appearance/retention/redaction/docs/updates/about settings (9.2-9.7, 9.9)"]
+  },
+  "handoffNotes": [
+    "Consolidate the per-file app-shell (sidebar + top bar) into a single Inertia/React layout component.",
+    "Expose theme + accent as the Appearance setting; write tokens as CSS custom properties (see design-tokens.json).",
+    "Mockups are the visual + interaction spec, not functional code — interactions are illustrative.",
+    "Status is always color + shape + label (WCAG 2.2 AA); keep this in the component library.",
+    "Copy is consequence-first and calm — reuse the sample strings as voice reference."
+  ]
+}

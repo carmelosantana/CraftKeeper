@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--ck-accent);text-decoration:none}
+a:hover{color:var(--ck-accent-h)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--ck-border-strong);border-radius:6px}
+@keyframes ckpulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="--ck-bg:#1c1a17;--ck-surface:#23201c;--ck-surface-2:#2a2622;--ck-elevated:#302b26;--ck-border:#3a352f;--ck-border-strong:#4a443c;--ck-text:#ece7dd;--ck-text-2:#b7afa2;--ck-text-3:#877f72;--ck-success:#6db67f;--ck-warning:#d9a441;--ck-danger:#d97a67;--ck-info:#6fa3d1;--ck-accent:#cf6c40;--ck-accent-h:#dc7d52;--ck-accent-fg:#1c1512;--ck-shadow:0 1px 2px rgba(0,0,0,.4);--ck-shadow-lg:0 10px 30px rgba(0,0,0,.45);background:#1c1a17;color:#ece7dd;min-height:100vh;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;display:flex">
+
+<nav style="width:236px;flex:none;background:var(--ck-surface);border-right:1px solid var(--ck-border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh">
+  <div style="padding:18px 18px 14px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--ck-border)">
+    <div style="width:32px;height:32px;border-radius:8px;background:var(--ck-accent);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2.5px;padding:6px;flex:none">
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+    </div>
+    <div style="font:800 16px/1 'Hanken Grotesk';letter-spacing:-.01em">Craft<span style="font-weight:500;color:var(--ck-accent)">Keeper</span></div>
+  </div>
+  <div style="margin:14px 12px;padding:12px 13px;background:var(--ck-elevated);border:1px solid var(--ck-border);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success);animation:ckpulse 2s infinite;flex:none"></span><span style="font:700 13px 'Hanken Grotesk'">Survival</span></div>
+    <div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3);margin-top:4px">mc.example.net · Paper 1.21.4</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:9px;font:600 11px 'Hanken Grotesk';color:var(--ck-text-2)"><span style="width:6px;height:6px;border-radius:1px;background:var(--ck-success)"></span>3 / 40 online</div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:4px 12px">
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Overview</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Server</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Configurations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Plugins<span style="margin-left:auto;font:600 10px 'Hanken Grotesk';padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--ck-warning) 18%,transparent);color:var(--ck-warning)">2</span></div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Assistant</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Activity</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Integrations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;background:color-mix(in srgb,var(--ck-accent) 16%,transparent);color:var(--ck-accent-h);font:600 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;background:currentColor;opacity:.9;flex:none"></span>Settings</div>
+  </div>
+  <div style="padding:12px;border-top:1px solid var(--ck-border);display:flex;align-items:center;gap:10px">
+    <div style="width:30px;height:30px;border-radius:7px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 12px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">A</div>
+    <div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk'">admin</div><div style="font:500 10px 'JetBrains Mono';color:var(--ck-text-3)">TOTP on</div></div>
+  </div>
+</nav>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+  <div style="position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);background:color-mix(in srgb,var(--ck-bg) 82%,transparent);border-bottom:1px solid var(--ck-border);padding:11px 26px;display:flex;align-items:center;gap:14px">
+    <div style="font:800 16px 'Hanken Grotesk'">Settings</div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:4px;padding:4px;background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:7px">
+      <button data-theme-btn="dark" onClick="{{ pickDark }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Dark</button>
+      <button data-theme-btn="light" onClick="{{ pickLight }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-border-strong);background:transparent;color:var(--ck-text-2)">Light</button>
+    </div>
+  </div>
+
+  <div style="display:flex;min-height:0">
+    <!-- settings sub-nav -->
+    <div style="width:210px;flex:none;border-right:1px solid var(--ck-border);padding:18px 14px;display:grid;gap:2px;align-content:start">
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Account &amp; security</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Appearance</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Server paths</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Retention</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Redaction</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Documentation</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">Updates</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:600 12.5px 'Hanken Grotesk';background:color-mix(in srgb,var(--ck-accent) 14%,transparent);color:var(--ck-accent-h)">Diagnostics</div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font:500 12.5px 'Hanken Grotesk';color:var(--ck-text-2)">About &amp; support</div>
+    </div>
+
+    <div style="flex:1;min-width:0;padding:24px 26px 48px;max-width:900px">
+      <!-- account/security summary -->
+      <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;padding:18px 20px;box-shadow:var(--ck-shadow)">
+        <div style="display:flex;align-items:center;gap:13px">
+          <div style="width:40px;height:40px;border-radius:9px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 15px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">A</div>
+          <div style="flex:1"><div style="font:700 14px 'Hanken Grotesk'">admin</div><div style="font:400 11.5px 'Hanken Grotesk';color:var(--ck-text-3)">2 active sessions</div></div>
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font:600 11px 'Hanken Grotesk';background:color-mix(in srgb,var(--ck-success) 15%,transparent);color:var(--ck-success)"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-success)"></span>TOTP on</span>
+          <a href="#" style="font:600 12px 'Hanken Grotesk'">Change password</a>
+        </div>
+      </div>
+
+      <!-- diagnostics -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 14px">
+        <div><div style="font:700 17px 'Hanken Grotesk'">Diagnostics</div><div style="font:400 12px 'Hanken Grotesk';color:var(--ck-text-3);margin-top:2px">Every subsystem, checked live. Support bundles preview and redact before download.</div></div>
+        <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:9px 14px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-surface);color:var(--ck-text)">Download support bundle</button>
+      </div>
+      <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;overflow:hidden;box-shadow:var(--ck-shadow)">
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Application health</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">Laravel 11 · queue OK</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Healthy</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Database</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">SQLite · /data/craftkeeper.db</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Healthy</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Queue &amp; scheduler</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">last run 12s ago</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Healthy</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Volume permissions</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">/minecraft rw · /data rw</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Healthy</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">RCON</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">127.0.0.1:25575 · 4ms</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Connected</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-warning);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Catalog</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">last sync 8d ago</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-warning)">Stale</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--ck-border)"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-success);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">AI provider</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">Anthropic · reachable</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-success)">Connected</span></div>
+        <div style="display:flex;align-items:center;gap:13px;padding:12px 18px"><span style="width:9px;height:9px;border-radius:2px;background:var(--ck-text-3);flex:none"></span><span style="font:600 13px 'Hanken Grotesk';flex:1">Documentation access</span><code style="font:500 11px 'JetBrains Mono';color:var(--ck-text-3)">allow-list only</code><span style="font:600 11px 'Hanken Grotesk';color:var(--ck-text-3)">Limited</span></div>
+      </div>
+
+      <!-- recent errors -->
+      <div style="background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:11px;padding:18px 20px;margin-top:16px;box-shadow:var(--ck-shadow)">
+        <div style="font:700 14px 'Hanken Grotesk';margin-bottom:12px">Recent errors</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--ck-border);font:400 12px 'Hanken Grotesk'"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-danger);flex:none"></span><span style="flex:1;color:var(--ck-text-2)">Catalog sync failed — upstream timeout</span><code style="font-family:'JetBrains Mono';color:var(--ck-text-3)">8d ago</code></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 0;font:400 12px 'Hanken Grotesk'"><span style="width:7px;height:7px;border-radius:2px;background:var(--ck-warning);flex:none"></span><span style="flex:1;color:var(--ck-text-2)">EssentialsX kit failed to load — malformed YAML</span><code style="font-family:'JetBrains Mono';color:var(--ck-text-3)">today</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1440, &quot;height&quot;: 900 },
+  &quot;theme&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot;, &quot;section&quot;: &quot;Theme&quot; },
+  &quot;accent&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;terracotta&quot;, &quot;options&quot;: [&quot;terracotta&quot;, &quot;emerald&quot;, &quot;slate&quot;, &quot;bronze&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Theme&quot; }
+}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: props.theme || 'dark', accent: props.accent || 'terracotta' };
+    this.THEMES = {
+      dark: { '--ck-bg':'#1c1a17','--ck-surface':'#23201c','--ck-surface-2':'#2a2622','--ck-elevated':'#302b26','--ck-border':'#3a352f','--ck-border-strong':'#4a443c','--ck-text':'#ece7dd','--ck-text-2':'#b7afa2','--ck-text-3':'#877f72','--ck-success':'#6db67f','--ck-warning':'#d9a441','--ck-danger':'#d97a67','--ck-info':'#6fa3d1','--ck-shadow':'0 1px 2px rgba(0,0,0,.4)','--ck-shadow-lg':'0 10px 30px rgba(0,0,0,.45)' },
+      light: { '--ck-bg':'#f1ece3','--ck-surface':'#faf7f1','--ck-surface-2':'#ece5d8','--ck-elevated':'#ffffff','--ck-border':'#e2dacb','--ck-border-strong':'#cabfa9','--ck-text':'#2b2620','--ck-text-2':'#5f584c','--ck-text-3':'#8a8174','--ck-success':'#3f8b57','--ck-warning':'#9a6c26','--ck-danger':'#b04d3c','--ck-info':'#3a6ea5','--ck-shadow':'0 1px 2px rgba(60,50,30,.08)','--ck-shadow-lg':'0 10px 30px rgba(60,50,30,.14)' }
+    };
+    this.ACCENTS = {
+      terracotta: { dark:['#cf6c40','#dc7d52','#1c1512'], light:['#b4552d','#a24a25','#ffffff'] },
+      emerald:    { dark:['#4fa87a','#5cb888','#0f1a14'], light:['#2f7d4f','#296e45','#ffffff'] },
+      slate:      { dark:['#5f97cf','#71a5d9','#0f151c'], light:['#2f6fb0','#2a63a0','#ffffff'] },
+      bronze:     { dark:['#bd9a54','#cba965','#1a160e'], light:['#7a6a3f','#6b5d37','#ffffff'] }
+    };
+  }
+  applyVars = (el) => {
+    if (el) this._root = el;
+    const root = this._root;
+    if (!root) return;
+    const t = this.THEMES[this.state.theme];
+    for (const k in t) root.style.setProperty(k, t[k]);
+    const a = this.ACCENTS[this.state.accent][this.state.theme];
+    root.style.setProperty('--ck-accent', a[0]);
+    root.style.setProperty('--ck-accent-h', a[1]);
+    root.style.setProperty('--ck-accent-fg', a[2]);
+    root.style.background = t['--ck-bg'];
+    root.style.color = t['--ck-text'];
+    root.querySelectorAll('[data-theme-btn]').forEach(b => {
+      const on = b.dataset.themeBtn === this.state.theme;
+      b.style.background = on ? 'var(--ck-accent)' : 'transparent';
+      b.style.color = on ? 'var(--ck-accent-fg)' : 'var(--ck-text-2)';
+      b.style.borderColor = on ? 'var(--ck-accent)' : 'var(--ck-border-strong)';
+    });
+  };
+  componentDidUpdate(prev) {
+    if (prev.theme !== this.props.theme || prev.accent !== this.props.accent) {
+      this.setState({ theme: this.props.theme || this.state.theme, accent: this.props.accent || this.state.accent });
+    } else {
+      this.applyVars();
+    }
+  }
+  pick(theme, accent) { this.setState(s => ({ theme: theme || s.theme, accent: accent || s.accent })); }
+  renderVals() {
+    return {
+      rootRef: this.applyVars,
+      pickDark: () => this.pick('dark', null),
+      pickLight: () => this.pick('light', null)
+    };
+  }
+}
+</script>
+</body>
+</html>

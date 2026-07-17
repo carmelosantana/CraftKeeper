@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--ck-accent);text-decoration:none}
+a:hover{color:var(--ck-accent-h)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--ck-border-strong);border-radius:6px}
+@keyframes ckpulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="--ck-bg:#1c1a17;--ck-surface:#23201c;--ck-surface-2:#2a2622;--ck-elevated:#302b26;--ck-border:#3a352f;--ck-border-strong:#4a443c;--ck-text:#ece7dd;--ck-text-2:#b7afa2;--ck-text-3:#877f72;--ck-success:#6db67f;--ck-warning:#d9a441;--ck-danger:#d97a67;--ck-info:#6fa3d1;--ck-accent:#cf6c40;--ck-accent-h:#dc7d52;--ck-accent-fg:#1c1512;--ck-shadow:0 1px 2px rgba(0,0,0,.4);--ck-shadow-lg:0 10px 30px rgba(0,0,0,.45);background:#1c1a17;color:#ece7dd;min-height:100vh;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;display:flex;position:relative">
+
+<!-- ============ SIDEBAR ============ -->
+<nav style="width:236px;flex:none;background:var(--ck-surface);border-right:1px solid var(--ck-border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh">
+  <div style="padding:18px 18px 14px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--ck-border)">
+    <div style="width:32px;height:32px;border-radius:8px;background:var(--ck-accent);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:2.5px;padding:6px;flex:none">
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span>
+      <span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.2;border-radius:1px"></span><span style="background:var(--ck-accent-fg);opacity:.95;border-radius:1px"></span>
+    </div>
+    <div style="font:800 16px/1 'Hanken Grotesk';letter-spacing:-.01em">Craft<span style="font-weight:500;color:var(--ck-accent)">Keeper</span></div>
+  </div>
+  <div style="margin:14px 12px;padding:12px 13px;background:var(--ck-elevated);border:1px solid var(--ck-border);border-radius:8px">
+    <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ck-success);animation:ckpulse 2s infinite;flex:none"></span><span style="font:700 13px 'Hanken Grotesk'">Survival</span></div>
+    <div style="font:500 10.5px 'JetBrains Mono';color:var(--ck-text-3);margin-top:4px">mc.example.net · Paper 1.21.4</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:9px;font:600 11px 'Hanken Grotesk';color:var(--ck-text-2)"><span style="width:6px;height:6px;border-radius:1px;background:var(--ck-success)"></span>3 / 40 online</div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:4px 12px">
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Overview</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Server</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Configurations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Plugins<span style="margin-left:auto;font:600 10px 'Hanken Grotesk';padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--ck-warning) 18%,transparent);color:var(--ck-warning)">2</span></div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;background:color-mix(in srgb,var(--ck-accent) 16%,transparent);color:var(--ck-accent-h);font:600 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;background:currentColor;opacity:.9;flex:none"></span>Assistant</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Activity</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Integrations</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:7px;color:var(--ck-text-2);font:500 13px 'Hanken Grotesk';margin-bottom:2px"><span style="width:16px;height:16px;border-radius:3px;border:1.5px solid var(--ck-text-3);flex:none"></span>Settings</div>
+  </div>
+  <div style="padding:12px;border-top:1px solid var(--ck-border);display:flex;align-items:center;gap:10px">
+    <div style="width:30px;height:30px;border-radius:7px;background:var(--ck-surface-2);border:1px solid var(--ck-border-strong);display:flex;align-items:center;justify-content:center;font:700 12px 'Hanken Grotesk';color:var(--ck-text-2);flex:none">A</div>
+    <div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk'">admin</div><div style="font:500 10px 'JetBrains Mono';color:var(--ck-text-3)">TOTP on</div></div>
+  </div>
+</nav>
+
+<!-- ============ MAIN ============ -->
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;height:100vh">
+  <!-- top bar -->
+  <div style="flex:none;backdrop-filter:blur(10px);background:color-mix(in srgb,var(--ck-bg) 82%,transparent);border-bottom:1px solid var(--ck-border);padding:11px 26px;display:flex;align-items:center;gap:14px">
+    <div style="font:800 16px 'Hanken Grotesk'">Assistant</div>
+    <span style="display:inline-flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--ck-text-3)"><span style="width:6px;height:6px;border-radius:50%;background:#c78fd0"></span>claude-sonnet · hosted</span>
+    <div style="flex:1"></div>
+    <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:7px 13px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-surface);color:var(--ck-text)">+ New conversation</button>
+    <div style="display:flex;align-items:center;gap:4px;padding:4px;background:var(--ck-surface);border:1px solid var(--ck-border);border-radius:7px">
+      <button data-theme-btn="dark" onClick="{{ pickDark }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Dark</button>
+      <button data-theme-btn="light" onClick="{{ pickLight }}" style="cursor:pointer;font:600 11px 'Hanken Grotesk';padding:4px 10px;border-radius:5px;border:1px solid var(--ck-border-strong);background:transparent;color:var(--ck-text-2)">Light</button>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex">
+    <!-- conversation -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:24px 30px">
+        <div style="max-width:720px;margin:0 auto;display:grid;gap:20px">
+          <!-- user -->
+          <div style="justify-self:end;max-width:80%;background:var(--ck-accent);color:var(--ck-accent-fg);border-radius:12px 12px 3px 12px;padding:12px 15px;font:500 13.5px/1.5 'Hanken Grotesk'">Players say joining is laggy. Why is TPS dropping and what should I change?</div>
+          <!-- assistant -->
+          <div style="max-width:92%">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><span style="width:22px;height:22px;border-radius:6px;background:color-mix(in srgb,#c78fd0 22%,transparent);display:flex;align-items:center;justify-content:center;font:700 10px 'Hanken Grotesk';color:#d6a8dd">AI</span><span style="font:600 12px 'Hanken Grotesk'">CraftKeeper Assistant</span></div>
+            <div style="font:400 13.5px/1.65 'Hanken Grotesk';color:var(--ck-text)">
+              <div style="display:inline-flex;align-items:center;gap:6px;font:600 10px 'Hanken Grotesk';color:var(--ck-info);margin-bottom:5px"><span style="width:6px;height:6px;border-radius:1px;background:var(--ck-info)"></span>OBSERVED FROM SERVER</div>
+              <p style="margin:0 0 12px">Your TPS dips to <strong>19.8</strong> and MSPT spikes to <strong>42ms</strong> during chunk generation — visible in the last hour of logs. This lines up with players reporting lag right after they join.</p>
+              <div style="display:inline-flex;align-items:center;gap:6px;font:600 10px 'Hanken Grotesk';color:#6fc5c5;margin-bottom:5px"><span style="width:6px;height:6px;border-radius:1px;background:#4fb3b3"></span>FROM DOCUMENTATION</div>
+              <p style="margin:0 0 12px">Paper throttles how quickly chunks stream to clients via <code style="font-family:'JetBrains Mono';font-size:12px;background:var(--ck-surface-2);padding:1px 5px;border-radius:4px">max-concurrent-sends</code>, currently set to <strong>2</strong>.</p>
+              <div style="display:inline-flex;align-items:center;gap:6px;font:600 10px 'Hanken Grotesk';color:var(--ck-text-3);margin-bottom:5px"><span style="width:6px;height:6px;border-radius:1px;background:var(--ck-text-3)"></span>INFERENCE · NOT CERTAIN</div>
+              <p style="margin:0 0 14px;color:var(--ck-text-2)">Raising it to 4 usually smooths join-time lag, though the right value depends on your CPU. I can propose the change for you to review.</p>
+            </div>
+            <!-- citations -->
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+              <a href="#" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#8fa4b8 14%,transparent);color:#a9c0d4"><span style="width:6px;height:6px;border-radius:1px;background:#8fa4b8"></span>logs · 09:42 selection</a>
+              <a href="#" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#8fa4b8 14%,transparent);color:#a9c0d4"><span style="width:6px;height:6px;border-radius:1px;background:#8fa4b8"></span>paper-global.yml</a>
+              <a href="#" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#4fb3b3 14%,transparent);color:#6fc5c5"><span style="width:6px;height:6px;border-radius:1px;background:#4fb3b3"></span>docs.papermc.io</a>
+            </div>
+            <!-- proposed change -->
+            <div style="background:var(--ck-surface);border:1px solid color-mix(in srgb,var(--ck-warning) 30%,var(--ck-border));border-radius:10px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 15px;background:color-mix(in srgb,var(--ck-warning) 9%,transparent);border-bottom:1px solid var(--ck-border)"><span style="width:5px;height:20px;border-radius:3px;background:var(--ck-warning)"></span><div><div style="font:700 12.5px 'Hanken Grotesk'">Proposed configuration change</div><div style="font:500 10px 'JetBrains Mono';color:var(--ck-text-3)">High risk · restart required · reversible</div></div></div>
+              <div style="padding:14px 15px">
+                <div style="background:var(--ck-bg);border:1px solid var(--ck-border);border-radius:7px;font:400 11.5px/1.7 'JetBrains Mono';overflow:hidden"><div style="padding:2px 12px;color:var(--ck-text-3)">paper-global.yml → chunk-loading</div><div style="padding:2px 12px;background:color-mix(in srgb,var(--ck-danger) 15%,transparent)"><span style="color:var(--ck-danger)">− </span>max-concurrent-sends: 2</div><div style="padding:2px 12px;background:color-mix(in srgb,var(--ck-success) 15%,transparent)"><span style="color:var(--ck-success)">+ </span>max-concurrent-sends: 4</div></div>
+                <div style="display:flex;gap:9px;margin-top:13px"><button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:8px 14px;border-radius:6px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Review &amp; approve</button><button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:8px 14px;border-radius:6px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text)">Revise</button><button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:8px 14px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--ck-text-2)">Reject</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- composer -->
+      <div style="flex:none;padding:16px 30px 22px;border-top:1px solid var(--ck-border)">
+        <div style="max-width:720px;margin:0 auto">
+          <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px">
+            <span style="padding:5px 10px;border-radius:14px;font:600 11px 'Hanken Grotesk';background:var(--ck-surface);border:1px solid var(--ck-border-strong);color:var(--ck-text-2)">Is my whitelist enforced?</span>
+            <span style="padding:5px 10px;border-radius:14px;font:600 11px 'Hanken Grotesk';background:var(--ck-surface);border:1px solid var(--ck-border-strong);color:var(--ck-text-2)">Why did EssentialsX error?</span>
+            <span style="padding:5px 10px;border-radius:14px;font:600 11px 'Hanken Grotesk';background:var(--ck-surface);border:1px solid var(--ck-border-strong);color:var(--ck-text-2)">Explain online-mode</span>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:10px;padding:11px 13px;border-radius:10px;border:1px solid var(--ck-border-strong);background:var(--ck-surface)">
+            <input placeholder="Ask about your server — it can read the files you attach" style="flex:1;background:transparent;border:none;outline:none;font:500 13px 'Hanken Grotesk';color:var(--ck-text)"/>
+            <button style="cursor:pointer;font:600 12px 'Hanken Grotesk';padding:8px 15px;border-radius:7px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- context rail -->
+    <div style="width:300px;flex:none;border-left:1px solid var(--ck-border);background:var(--ck-surface);overflow-y:auto;padding:20px 18px">
+      <div style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;color:var(--ck-text-3);margin-bottom:11px">CONTEXT SENT TO PROVIDER</div>
+      <div style="display:grid;gap:8px">
+        <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:7px;background:var(--ck-elevated);border:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:#8fa4b8;flex:none"></span><div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk'">Server summary</div><div style="font:400 10px 'Hanken Grotesk';color:var(--ck-text-3)">version, TPS, players</div></div></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:7px;background:var(--ck-elevated);border:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:#8fa4b8;flex:none"></span><div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk'">paper-global.yml</div><div style="font:400 10px 'JetBrains Mono';color:var(--ck-text-3)">config · redacted</div></div></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:7px;background:var(--ck-elevated);border:1px solid var(--ck-border)"><span style="width:7px;height:7px;border-radius:2px;background:#8fa4b8;flex:none"></span><div style="flex:1;min-width:0"><div style="font:600 12px 'Hanken Grotesk'">Log selection</div><div style="font:400 10px 'Hanken Grotesk';color:var(--ck-text-3)">09:40–09:45 · 24 lines</div></div></div>
+      </div>
+      <div style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;color:var(--ck-text-3);margin:20px 0 11px">REDACTION</div>
+      <div style="padding:11px 13px;border-radius:8px;background:color-mix(in srgb,var(--ck-warning) 8%,var(--ck-elevated));border:1px solid color-mix(in srgb,var(--ck-warning) 26%,transparent)">
+        <div style="display:flex;align-items:center;gap:8px;font:600 12px 'Hanken Grotesk'"><span style="width:12px;height:12px;border-radius:3px;background:var(--ck-warning);flex:none"></span>3 secrets masked</div>
+        <div style="font:400 11px/1.5 'Hanken Grotesk';color:var(--ck-text-2);margin-top:6px">RCON password, API token and a webhook URL are replaced with <code style="font-family:'JetBrains Mono';font-size:10px">•••</code> before sending.</div>
+      </div>
+      <div style="font:600 10px 'JetBrains Mono';letter-spacing:.08em;color:var(--ck-text-3);margin:20px 0 11px">DOCUMENTATION SOURCES</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="padding:3px 8px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#4fb3b3 14%,transparent);color:#6fc5c5">PaperMC</span>
+        <span style="padding:3px 8px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#4fb3b3 14%,transparent);color:#6fc5c5">Geyser</span>
+        <span style="padding:3px 8px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:var(--ck-surface-2);color:var(--ck-text-3)">Web search off</span>
+      </div>
+      <div style="font:400 10.5px 'JetBrains Mono';color:var(--ck-text-3);margin-top:20px;padding-top:16px;border-top:1px solid var(--ck-border)">Context: 4.2K / 200K tokens</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ REDACTION REVIEW MODAL ============ -->
+<div style="position:absolute;inset:0;z-index:50;background:color-mix(in srgb,var(--ck-bg) 62%,transparent);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px">
+  <div style="width:100%;max-width:520px;background:var(--ck-elevated);border:1px solid var(--ck-border-strong);border-radius:13px;box-shadow:var(--ck-shadow-lg);overflow:hidden">
+    <div style="padding:18px 20px;border-bottom:1px solid var(--ck-border)">
+      <div style="display:flex;align-items:center;gap:9px"><span style="width:24px;height:24px;border-radius:6px;background:color-mix(in srgb,#c78fd0 22%,transparent);display:flex;align-items:center;justify-content:center;font:700 10px 'Hanken Grotesk';color:#d6a8dd">AI</span><h3 style="font:700 16px 'Hanken Grotesk';margin:0">Review what leaves your server</h3></div>
+      <p style="font:400 12.5px/1.5 'Hanken Grotesk';color:var(--ck-text-2);margin:10px 0 0">Before sending to a hosted provider, CraftKeeper redacts detected secrets. Confirm the destination and content.</p>
+    </div>
+    <div style="padding:18px 20px">
+      <div style="display:flex;align-items:center;gap:8px;font:600 11px 'Hanken Grotesk';color:var(--ck-text-2);margin-bottom:8px">Destination <span style="padding:3px 8px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,#c78fd0 16%,transparent);color:#d6a8dd">Anthropic · hosted</span></div>
+      <div style="background:var(--ck-bg);border:1px solid var(--ck-border);border-radius:8px;padding:12px 14px;font:400 11.5px/1.8 'JetBrains Mono'">
+        <div style="color:var(--ck-text-2)">rcon.password=<span style="background:color-mix(in srgb,var(--ck-warning) 22%,transparent);color:var(--ck-warning);padding:0 4px;border-radius:3px">•••••••• redacted</span></div>
+        <div style="color:var(--ck-text-2)">max-concurrent-sends=<span style="color:var(--ck-text)">2</span></div>
+        <div style="color:var(--ck-text-2)">api-token=<span style="background:color-mix(in srgb,var(--ck-warning) 22%,transparent);color:var(--ck-warning);padding:0 4px;border-radius:3px">•••••••• redacted</span></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:12px">
+        <span style="padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:var(--ck-surface-2);color:var(--ck-text-2)">3 files</span>
+        <span style="padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:color-mix(in srgb,var(--ck-warning) 15%,transparent);color:var(--ck-warning)">3 secrets masked</span>
+        <span style="padding:4px 9px;border-radius:5px;font:600 10.5px 'Hanken Grotesk';background:var(--ck-surface-2);color:var(--ck-text-2)">~4.2K tokens</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--ck-border);background:var(--ck-surface)">
+      <button style="cursor:pointer;font:600 13px 'Hanken Grotesk';padding:9px 16px;border-radius:7px;border:1px solid var(--ck-border-strong);background:var(--ck-elevated);color:var(--ck-text)">Cancel</button>
+      <button style="cursor:pointer;font:700 13px 'Hanken Grotesk';padding:9px 16px;border-radius:7px;border:1px solid var(--ck-accent);background:var(--ck-accent);color:var(--ck-accent-fg)">Send redacted context</button>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1440, &quot;height&quot;: 900 },
+  &quot;theme&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot;, &quot;section&quot;: &quot;Theme&quot; },
+  &quot;accent&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;terracotta&quot;, &quot;options&quot;: [&quot;terracotta&quot;, &quot;emerald&quot;, &quot;slate&quot;, &quot;bronze&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Theme&quot; }
+}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: props.theme || 'dark', accent: props.accent || 'terracotta' };
+    this.THEMES = {
+      dark: { '--ck-bg':'#1c1a17','--ck-surface':'#23201c','--ck-surface-2':'#2a2622','--ck-elevated':'#302b26','--ck-border':'#3a352f','--ck-border-strong':'#4a443c','--ck-text':'#ece7dd','--ck-text-2':'#b7afa2','--ck-text-3':'#877f72','--ck-success':'#6db67f','--ck-warning':'#d9a441','--ck-danger':'#d97a67','--ck-info':'#6fa3d1','--ck-shadow':'0 1px 2px rgba(0,0,0,.4)','--ck-shadow-lg':'0 10px 30px rgba(0,0,0,.45)' },
+      light: { '--ck-bg':'#f1ece3','--ck-surface':'#faf7f1','--ck-surface-2':'#ece5d8','--ck-elevated':'#ffffff','--ck-border':'#e2dacb','--ck-border-strong':'#cabfa9','--ck-text':'#2b2620','--ck-text-2':'#5f584c','--ck-text-3':'#8a8174','--ck-success':'#3f8b57','--ck-warning':'#9a6c26','--ck-danger':'#b04d3c','--ck-info':'#3a6ea5','--ck-shadow':'0 1px 2px rgba(60,50,30,.08)','--ck-shadow-lg':'0 10px 30px rgba(60,50,30,.14)' }
+    };
+    this.ACCENTS = {
+      terracotta: { dark:['#cf6c40','#dc7d52','#1c1512'], light:['#b4552d','#a24a25','#ffffff'] },
+      emerald:    { dark:['#4fa87a','#5cb888','#0f1a14'], light:['#2f7d4f','#296e45','#ffffff'] },
+      slate:      { dark:['#5f97cf','#71a5d9','#0f151c'], light:['#2f6fb0','#2a63a0','#ffffff'] },
+      bronze:     { dark:['#bd9a54','#cba965','#1a160e'], light:['#7a6a3f','#6b5d37','#ffffff'] }
+    };
+  }
+  applyVars = (el) => {
+    if (el) this._root = el;
+    const root = this._root;
+    if (!root) return;
+    const t = this.THEMES[this.state.theme];
+    for (const k in t) root.style.setProperty(k, t[k]);
+    const a = this.ACCENTS[this.state.accent][this.state.theme];
+    root.style.setProperty('--ck-accent', a[0]);
+    root.style.setProperty('--ck-accent-h', a[1]);
+    root.style.setProperty('--ck-accent-fg', a[2]);
+    root.style.background = t['--ck-bg'];
+    root.style.color = t['--ck-text'];
+    root.querySelectorAll('[data-theme-btn]').forEach(b => {
+      const on = b.dataset.themeBtn === this.state.theme;
+      b.style.background = on ? 'var(--ck-accent)' : 'transparent';
+      b.style.color = on ? 'var(--ck-accent-fg)' : 'var(--ck-text-2)';
+      b.style.borderColor = on ? 'var(--ck-accent)' : 'var(--ck-border-strong)';
+    });
+  };
+  componentDidUpdate(prev) {
+    if (prev.theme !== this.props.theme || prev.accent !== this.props.accent) {
+      this.setState({ theme: this.props.theme || this.state.theme, accent: this.props.accent || this.state.accent });
+    } else {
+      this.applyVars();
+    }
+  }
+  pick(theme, accent) { this.setState(s => ({ theme: theme || s.theme, accent: accent || s.accent })); }
+  renderVals() {
+    return {
+      rootRef: this.applyVars,
+      pickDark: () => this.pick('dark', null),
+      pickLight: () => this.pick('light', null)
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+{
+  "$meta": {
+    "product": "CraftKeeper",
+    "description": "Component inventory for CraftKeeper. Each entry lists the variants and states realized in the HTML mockups, plus the tokens they consume. Styling is inline in the mockups (no CSS classes); names below are the intended engineering component names.",
+    "version": "0.1",
+    "principles": [
+      "Powerful without feeling dangerous — actions state what happens, what changes, reversibility, restart need, risks.",
+      "Progressive disclosure — readable defaults; raw files/paths/diffs available.",
+      "Configuration is a first-class product, not a file browser.",
+      "AI proposes; the administrator decides (v1: no autonomous file/command changes).",
+      "Every action has provenance.",
+      "Operational state is honest and specific."
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "variants": ["primary", "secondary", "ghost", "destructive"],
+      "sizes": ["sm", "md"],
+      "states": ["default", "hover", "disabled", "loading"],
+      "tokens": ["accent", "accent-fg", "border-strong", "elevated", "danger"],
+      "notes": "Destructive is always visually distinct (danger-tinted bg + danger text/border). Loading shows a spinner."
+    },
+    {
+      "name": "Input / Field",
+      "variants": ["text", "password", "number", "select", "segmented", "toggle", "checkbox", "otp-digit"],
+      "states": ["default", "focus", "error", "disabled"],
+      "tokens": ["border-strong", "elevated", "accent", "danger"],
+      "notes": "Fields pair a label + help text; error state connects the message to the field (danger label, border, and inline message with a shape marker)."
+    },
+    {
+      "name": "StatusBadge",
+      "purpose": "Honest operational state — never collapse 'pending restart' into 'saved'.",
+      "states": ["online", "degraded", "offline", "unknown", "in-progress", "pending-restart", "pending-reload", "scheduled", "completed", "failed", "rolled-back"],
+      "encoding": "color + a distinct shape glyph (square, triangle=restart, circle=reload, ring=scheduled, spinner=in-progress) + label. Never color-only.",
+      "tokens": ["success", "warning", "danger", "info", "text-3"]
+    },
+    {
+      "name": "ProvenanceBadge",
+      "purpose": "Show the source of information or an action.",
+      "values": ["mounted-server", "catalog", "hangar", "modrinth", "documentation", "ai-provider", "administrator", "api-mcp"],
+      "tokens": ["provenance.*"],
+      "notes": "Small square color chip + label."
+    },
+    {
+      "name": "RestartRequiredBadge",
+      "encoding": "warning triangle + 'Restart' / 'Restart required'",
+      "tokens": ["warning"]
+    },
+    {
+      "name": "CompatibilityIndicator",
+      "states": ["compatible", "untested", "incompatible", "unknown-metadata", "update-available"],
+      "notes": "Concrete signals only — no invented unified 'trust score'.",
+      "tokens": ["success", "warning", "danger", "text-2"]
+    },
+    {
+      "name": "RiskLevel",
+      "levels": ["low", "medium", "high", "critical"],
+      "encoding": "left color bar + label + example; friction scales with level (critical => type-to-confirm).",
+      "tokens": ["success", "info", "warning", "danger"]
+    },
+    {
+      "name": "ValidationMessage",
+      "variants": ["success", "warning", "error", "info"],
+      "notes": "Inline, connected to field or file; consequence-first copy."
+    },
+    {
+      "name": "Card",
+      "variants": ["plugin", "configuration", "snapshot", "player", "discovery"],
+      "anatomy": ["identity (icon/name/version)", "source/provenance", "state badges", "scannable preview", "footer meta + action"],
+      "tokens": ["surface", "border", "shadow.e1"]
+    },
+    {
+      "name": "PlayerIdentityMarker",
+      "encoding": "Java vs Bedrock/Floodgate platform chip + online square; Floodgate prefix shown.",
+      "caution": "Whitelist status must not imply 'trusted' when enforcement is disabled — explicit disclaimer shown."
+    },
+    {
+      "name": "DiffViewer",
+      "modes": ["unified", "side-by-side"],
+      "responsive": "side-by-side collapses to unified on narrow screens",
+      "tokens": ["syntax.diff-*"]
+    },
+    {
+      "name": "SourceEditor",
+      "features": ["line numbers", "syntax highlighting", "validation state", "secret masking", "diff-vs-saved"],
+      "tokens": ["bg", "syntax.*"]
+    },
+    {
+      "name": "GuidedConfigField",
+      "shows": ["friendly label", "exact config key", "description", "current value", "default value", "valid range/options", "restart/reload behavior", "docs link", "ask-about-this-setting"],
+      "states": ["default", "edited", "advanced-collapsed"],
+      "notes": "Inferred/generic fields must be labeled as such — never presented as officially documented."
+    },
+    {
+      "name": "Console",
+      "features": ["chronological output", "actor+source per line", "unambiguous leading '/' (added for user)", "command history", "saved templates by category", "AI command composer", "follow/pause", "filter", "connection status"],
+      "caution": "Visually distinct from a Linux shell. Dangerous commands open review, not immediate execution."
+    },
+    {
+      "name": "CommandComposer (AI)",
+      "shows": ["intent", "proposed exact commands", "explanation", "target resolution", "risk level", "expected outcome", "execute/revise"],
+      "rule": "AI-generated commands never look indistinguishable from already-executed ones."
+    },
+    {
+      "name": "ApprovalPanel",
+      "usedFor": ["AI config proposal", "AI RCON proposal", "change review"],
+      "shows": ["risk header", "affected files", "diff", "validation", "restart requirement", "reversibility", "approve/revise/reject"],
+      "tokens": ["warning", "accent", "shadow.e2"]
+    },
+    {
+      "name": "AIAnswer",
+      "distinguishes": ["explanation", "observation-from-server", "documentation", "inference", "suggested-action", "uncertainty", "missing-data"],
+      "citations": "link to exact config / log selection / plugin record / approved docs",
+      "tokens": ["provenance.mounted-server", "provenance.documentation", "text-3"]
+    },
+    {
+      "name": "RedactionDisclosure",
+      "shows": ["files included", "secret categories detected", "redacted preview", "provider destination", "continue/cancel"],
+      "notes": "Shown before sending context to a hosted provider."
+    },
+    {
+      "name": "SecretRedactionIndicator",
+      "encoding": "warning chip + masked '••••••••' token",
+      "tokens": ["warning"]
+    },
+    {
+      "name": "Notice / Alert",
+      "variants": ["warning", "danger", "info", "success"],
+      "notes": "Persistent notices use consequence-first copy (e.g. 'Saved, but Paper must restart before it becomes active')."
+    },
+    {
+      "name": "Toast",
+      "tokens": ["elevated", "shadow.e2"],
+      "notes": "Short, with optional undo/view action."
+    },
+    {
+      "name": "ConfirmationPattern",
+      "tiers": {
+        "low": "direct action or simple confirm, undo where possible",
+        "medium": "summary + effect + restart state + rollback",
+        "high": "explicit review + clearly labeled action",
+        "critical": "type the target name / action phrase (exceptional)"
+      }
+    },
+    {
+      "name": "DataTable",
+      "responsive": "collapses to stacked cards on mobile",
+      "notes": "Meaningful headers; drill-in row -> detail drawer."
+    },
+    {
+      "name": "Drawer / BottomSheet",
+      "usedFor": ["player detail", "contextual assistant", "mobile approval"],
+      "tokens": ["elevated", "shadow.e2"]
+    },
+    {
+      "name": "Modal",
+      "usedFor": ["redaction review", "restore review", "critical confirmation"],
+      "tokens": ["elevated", "border-strong", "shadow.e2"]
+    },
+    {
+      "name": "PageState",
+      "states": ["loading (skeleton shimmer)", "empty", "normal", "partial-data", "offline-server", "rcon-disconnected", "permission-denied", "read-only-fs", "invalid-config", "operation-running", "operation-failed", "pending-restart", "ai-disabled", "ai-unavailable", "marketplace-unavailable", "catalog-stale", "mobile"],
+      "notes": "Unavailable telemetry is labeled honestly (e.g. CPU 'not reported'), never simulated."
+    },
+    {
+      "name": "AppShell",
+      "parts": ["sidebar (mark, server identity, live health, player count, primary nav, admin menu)", "top bar (command palette ⌘K, pending-restart indicator, notifications, AI trigger, theme toggle)", "secondary/contextual nav"],
+      "notes": "Persistent desktop shell; collapses to drawer + bottom tab bar on mobile."
+    },
+    {
+      "name": "CommandPalette",
+      "actions": ["find configs", "open plugins", "navigate", "run safe predefined actions", "start AI question", "recent activity", "find commands", "open player"],
+      "rule": "Dangerous actions do not execute from search — they open their review/confirmation interface."
+    },
+    {
+      "name": "OperationProgressPanel",
+      "states": ["queued", "running", "verifying", "completed", "failed", "partially-completed", "rolled-back"]
+    }
+  ]
+}
