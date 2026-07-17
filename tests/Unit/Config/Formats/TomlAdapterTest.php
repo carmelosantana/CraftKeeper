@@ -97,6 +97,25 @@ it('flags normalization for a change to an array value', function () {
     expect($adapter->willNormalize($source, $change, null))->toBeTrue();
 });
 
+it('never reports a same-path batch as safe when applying it actually throws', function () {
+    // The first change targets an existing scalar "foo", which classify()
+    // locates and would naively patch in place — but TOML's single-line
+    // patcher (unlike YAML's) can't render an array value at all, so
+    // applyChanges() throws while applying the FIRST change, before the
+    // second (same-path) change is ever reached. willNormalize() must
+    // not have reported "false" (safe, in-place) for this batch, since
+    // that would be a silent lie about what applyChanges() actually does.
+    $source = "foo = 1\nbar = 2\n";
+    $adapter = new TomlAdapter;
+    $changes = [
+        ConfigChange::replace('foo', ['a', 'b']),
+        ConfigChange::replace('foo', 'newvalue'),
+    ];
+
+    expect(fn () => $adapter->applyChanges($source, $changes, null))->toThrow(InvalidConfigChange::class);
+    expect(fn () => $adapter->willNormalize($source, $changes, null))->toThrow(InvalidConfigChange::class);
+});
+
 it('reports duplicate keys as a diagnostic instead of throwing', function () {
     $source = "dupe = false\ndupe = true\n";
     $result = (new TomlAdapter)->validate($source, null);

@@ -10,6 +10,7 @@ use App\Config\ConfigNode;
 use App\Config\DiagnosticSeverity;
 use App\Config\Exceptions\ConfigParseException;
 use App\Config\Formats\Support\DotPath;
+use App\Config\Formats\Support\SequentialApplyResult;
 use App\Config\Formats\Support\SourceLine;
 use App\Config\Formats\Support\SourceLines;
 use App\Config\ParsedConfig;
@@ -82,32 +83,26 @@ final class YamlAdapter implements ConfigFormatAdapter
      */
     public function applyChanges(string $contents, array $changes, ?ConfigSchema $schema): string
     {
-        foreach ($changes as $change) {
-            $contents = $this->applyOne($contents, $change);
-        }
-
-        return $contents;
+        return $this->applySequentially($contents, $changes)->contents;
     }
 
     /**
      * Non-interface preview: true if applying this change set would need
      * at least one full structural re-serialize (losing comments) rather
-     * than an in-place byte patch. Each change is classified against the
-     * ORIGINAL $contents independently (not a simulated sequential
-     * application) — sufficient for a pre-proposal "this will reformat
-     * the file" warning.
+     * than an in-place byte patch. Shares applySequentially() with
+     * applyChanges(): each change is classified against the content as
+     * mutated by every change before it in the batch — exactly how
+     * applyChanges() itself walks the batch — so this can't disagree
+     * with what applyChanges() actually does to the SAME input. Only the
+     * `normalized` half of the simulation's result is kept; the
+     * simulated bytes are discarded, so calling this never mutates or
+     * persists anything.
      *
      * @param  list<ConfigChange>  $changes
      */
     public function willNormalize(string $contents, array $changes, ?ConfigSchema $schema): bool
     {
-        foreach ($changes as $change) {
-            if ($this->classify($contents, $change) === 'normalize') {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->applySequentially($contents, $changes)->normalized;
     }
 
     /**
@@ -540,6 +535,13 @@ final class YamlAdapter implements ConfigFormatAdapter
     }
 
     /**
+     * Classifies a single change against whatever $contents it is handed
+     * — never re-decodes or re-derives $contents itself. Callers that
+     * need to classify a whole batch (applySequentially(), below) are
+     * responsible for feeding each successive change the content as
+     * mutated by every change before it, so this always reflects reality
+     * for a multi-change batch rather than only the first change in it.
+     *
      * @return 'patch'|'append'|'remove-line'|'noop'|'normalize'
      */
     private function classify(string $contents, ConfigChange $change): string
@@ -582,9 +584,38 @@ final class YamlAdapter implements ConfigFormatAdapter
         return str_contains($change->path, '.') ? 'normalize' : 'append';
     }
 
-    private function applyOne(string $contents, ConfigChange $change): string
+    /**
+     * The ONE sequential-classification pass shared by applyChanges()
+     * and willNormalize(): walks the batch in order, classifying each
+     * change against the content as left by every change before it (a
+     * scalar leaf a change turns into an array/object, for instance, is
+     * no longer a patchable scalar for a LATER change on that same
+     * path), and applies it immediately so the next iteration sees the
+     * real result. `normalized` is true the moment any single step in
+     * that sequence needs a full structural re-serialize — the same
+     * condition applyChanges() would hit at that point.
+     *
+     * @param  list<ConfigChange>  $changes
+     */
+    private function applySequentially(string $contents, array $changes): SequentialApplyResult
     {
-        return match ($this->classify($contents, $change)) {
+        $normalized = false;
+
+        foreach ($changes as $change) {
+            $classification = $this->classify($contents, $change);
+            $normalized = $normalized || $classification === 'normalize';
+            $contents = $this->applyClassified($contents, $change, $classification);
+        }
+
+        return new SequentialApplyResult($contents, $normalized);
+    }
+
+    /**
+     * @param  'patch'|'append'|'remove-line'|'noop'|'normalize'  $classification
+     */
+    private function applyClassified(string $contents, ConfigChange $change, string $classification): string
+    {
+        return match ($classification) {
             'patch' => $this->patchScalar($contents, $change),
             'append' => $this->appendTopLevelKey($contents, $change),
             'remove-line' => $this->removeScalarLine($contents, $change),

@@ -121,6 +121,30 @@ it('flags normalization for a change that requires a full re-serialize and actua
         ->and(DotPath::has(Yaml::parse($result), 'bedrock.new-nested.deep'))->toBeTrue();
 });
 
+it('flags normalization for a same-path batch that only diverges from patch once the first change is applied', function () {
+    // The first change patches "foo" in place (a scalar -> array is still
+    // a single-line Inline::dump()), but that rewrite means "foo" is no
+    // longer a locatable scalar leaf for the SECOND change on the same
+    // path — so applyChanges() really does fall back to a full
+    // structural re-serialize for this batch, and willNormalize() must
+    // say so. Classifying both changes against the pristine original
+    // (the old bug) misses this entirely, since "foo" still reads as a
+    // patchable scalar there.
+    $source = "# note\nfoo: old\nbar: 1\n";
+    $adapter = new YamlAdapter;
+    $changes = [
+        ConfigChange::replace('foo', ['a', 'b']),
+        ConfigChange::replace('foo', 'newvalue'),
+    ];
+
+    expect($adapter->willNormalize($source, $changes, null))->toBeTrue();
+
+    $result = $adapter->applyChanges($source, $changes, null);
+
+    expect($result)->not->toContain('# note')
+        ->and(Yaml::parse($result))->toBe(['foo' => 'newvalue', 'bar' => 1]);
+});
+
 it('rejects YAML anchors with a line-numbered diagnostic instead of expanding them', function () {
     $source = "defaults: &defaults\n  timeout: 30\nserver:\n  <<: *defaults\n";
     $result = (new YamlAdapter)->validate($source, null);

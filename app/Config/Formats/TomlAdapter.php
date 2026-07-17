@@ -11,6 +11,7 @@ use App\Config\DiagnosticSeverity;
 use App\Config\Exceptions\ConfigParseException;
 use App\Config\Exceptions\InvalidConfigChange;
 use App\Config\Formats\Support\DotPath;
+use App\Config\Formats\Support\SequentialApplyResult;
 use App\Config\Formats\Support\SourceLines;
 use App\Config\ParsedConfig;
 use App\Config\Schemas\ConfigSchema;
@@ -82,27 +83,21 @@ final class TomlAdapter implements ConfigFormatAdapter
      */
     public function applyChanges(string $contents, array $changes, ?ConfigSchema $schema): string
     {
-        foreach ($changes as $change) {
-            $contents = $this->applyOne($contents, $change);
-        }
-
-        return $contents;
+        return $this->applySequentially($contents, $changes)->contents;
     }
 
     /**
-     * Non-interface preview — see YamlAdapter's identical method.
+     * Non-interface preview — see YamlAdapter's identical method and its
+     * applySequentially() docblock. Note this can throw (e.g.
+     * InvalidConfigChange) exactly when applyChanges() would throw for
+     * the same input, since both run the identical simulation — it never
+     * swallows a failure into a false "safe" `false`.
      *
      * @param  list<ConfigChange>  $changes
      */
     public function willNormalize(string $contents, array $changes, ?ConfigSchema $schema): bool
     {
-        foreach ($changes as $change) {
-            if ($this->classify($contents, $change) === 'normalize') {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->applySequentially($contents, $changes)->normalized;
     }
 
     /**
@@ -410,6 +405,13 @@ final class TomlAdapter implements ConfigFormatAdapter
     }
 
     /**
+     * Classifies a single change against whatever $contents it is handed
+     * — never re-decodes or re-derives $contents itself. Callers that
+     * need to classify a whole batch (applySequentially(), below) are
+     * responsible for feeding each successive change the content as
+     * mutated by every change before it, so this always reflects reality
+     * for a multi-change batch rather than only the first change in it.
+     *
      * @return 'patch'|'append'|'remove-line'|'noop'|'normalize'
      */
     private function classify(string $contents, ConfigChange $change): string
@@ -452,9 +454,36 @@ final class TomlAdapter implements ConfigFormatAdapter
         return str_contains($change->path, '.') ? 'normalize' : 'append';
     }
 
-    private function applyOne(string $contents, ConfigChange $change): string
+    /**
+     * The ONE sequential-classification pass shared by applyChanges()
+     * and willNormalize() — see YamlAdapter's identical method for the
+     * full rationale. Applying a step can throw (e.g. patchScalar()'s
+     * renderScalar() rejecting a value TOML can't represent on a single
+     * line); that exception is left to propagate from BOTH callers
+     * rather than caught here, since a step that would actually fail is
+     * never "safe" to classify as anything else.
+     *
+     * @param  list<ConfigChange>  $changes
+     */
+    private function applySequentially(string $contents, array $changes): SequentialApplyResult
     {
-        return match ($this->classify($contents, $change)) {
+        $normalized = false;
+
+        foreach ($changes as $change) {
+            $classification = $this->classify($contents, $change);
+            $normalized = $normalized || $classification === 'normalize';
+            $contents = $this->applyClassified($contents, $change, $classification);
+        }
+
+        return new SequentialApplyResult($contents, $normalized);
+    }
+
+    /**
+     * @param  'patch'|'append'|'remove-line'|'noop'|'normalize'  $classification
+     */
+    private function applyClassified(string $contents, ConfigChange $change, string $classification): string
+    {
+        return match ($classification) {
             'patch' => $this->patchScalar($contents, $change),
             'append' => $this->appendTopLevelKey($contents, $change),
             'remove-line' => $this->removeScalarLine($contents, $change),
