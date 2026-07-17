@@ -488,3 +488,161 @@ specs are stateful against `InstallationState` — they create the
 one-and-only admin — so every fresh server boot needs to start from zero
 users or a second run would find the app already "installed" and the
 first test would fail at the very first assertion.
+
+## Task 5 — Persistence, Audit, Operations, and Realtime Events
+
+**Two architectural forks the brief flagged as escalation-worthy, resolved
+without a human round trip — documented here in full so they're easy to
+revisit or override:**
+
+1. *Where transition logic lives.* `OperationStatus` (an enum) owns the
+   legal state-machine graph and `canTransitionTo()`/`legalNextStatuses()`;
+   `OperationService` is the only caller that ever changes an Operation's
+   status, and does so exclusively through a private `transition()` helper
+   that consults the enum and throws `IllegalOperationTransition` on a
+   miss. This is a pure implementation-encapsulation choice — nothing
+   downstream (Tasks 8/10/15 only ever call `propose()`/`approve()`/
+   `reject()`, or implement `OperationHandler`) can observe or depend on
+   *where* the graph lives, so getting this "wrong" costs nothing to fix
+   later.
+2. *How the handler registry binds.* `OperationHandlerRegistry` is a
+   constructor-injected list of `OperationHandler`s, resolved by calling
+   `supports(OperationType): bool` on each in turn (not a `type => handler`
+   map) — matching the plan's own `OperationHandler::supports()` shape,
+   which only makes sense if a single handler can legitimately support
+   several types (Task 15's one `PluginOperationHandler` covers
+   install/update/disable/remove/rollback). `App\Providers\AppServiceProvider`
+   binds it as a singleton built from every service tagged
+   `operation.handler` in the container. **Convention for Tasks 8, 10, 15:**
+   `$this->app->tag(ConfigApplyHandler::class, 'operation.handler');` in a
+   provider's `register()` is the entire integration step — no change to
+   `OperationService`, the registry, or any other Task 5 file is needed to
+   wire up a new `OperationType`'s execution. This *does* leak into
+   downstream tasks (they must discover and follow the convention), so it's
+   documented both here and in `OperationHandlerRegistry`'s class docblock.
+   This was judged low-risk enough to decide rather than escalate: it's a
+   single, standard Laravel pattern (container tags), not a novel one.
+
+**`approve()` does not auto-invoke `execute()`.** The brief requires
+`propose()` to never execute anything but says nothing about `approve()`.
+Rather than bake in an assumption about *how* execution is triggered after
+approval — synchronously inline (fine for Task 8/10's fast handlers) vs. a
+queued job (arguably necessary for Task 15's plugin downloads, since the
+brief describes approval as "enqueu[ing] one operation") — `execute(string
+$operationId): Operation` is a separate public method on `OperationService`.
+It is the extension seam: it resolves a handler from
+`OperationHandlerRegistry`, runs it, and degrades cleanly to a `Failed`
+operation with error code `operation.no_handler_registered` when none is
+registered (true for every `OperationType` as of this task, since no
+concrete handler exists until Task 8). Whichever task builds the first real
+handler decides whether its controller calls `execute()` right after
+`approve()` or dispatches a queued job that calls it — nothing here commits
+one way or the other. `execute()`'s state writes are deliberately split
+across two `DB::transaction()` calls (Approved→Running commits and
+broadcasts *before* the handler runs; the terminal Succeeded/Failed write
+commits separately after) so a slow handler doesn't hide the "Running"
+state from other readers/websocket clients until it's already finished —
+a single wrapping transaction would have silently defeated the point of
+realtime progress the moment a handler takes any real time to run.
+
+**Separation of duties is enforced by the PHP type system, not a runtime
+check.** `approve(string $operationId, User $approver)` and `reject(string
+$operationId, User $rejector, string $reason)` both take a concrete
+`App\Models\User` — never the broader `OperationAuthor` value object used
+for `propose()`'s (and `rollback()`'s) actor. There is no `if
+($author->type === Mcp) throw` runtime gate to accidentally remove or
+bypass later: an MCP/AI actor's only representation, `OperationAuthor`,
+structurally cannot satisfy either parameter. A dedicated reflection-based
+test (`OperationServiceTest`: "exposes approve()/reject() as human-only at
+the type level") pins this so the guarantee regresses loudly if a future
+change ever widens the parameter type. Human self-approval (propose and
+approve by the same admin) is explicitly the normal path for this
+single-admin product and is exercised by its own test — only non-human
+authorship is excluded.
+
+**`rollback()` takes an `OperationAuthor`, not a `User`.** Unlike
+approve/reject, a rollback is not always a new human decision — Task 8
+describes an automatic compensating rollback attempt after a failed
+post-write verification, which is CraftKeeper acting on itself
+(`OperationAuthor::system()`), not a second approval gate. A fourth actor
+type, `System`, was added to `OperationActorType` (alongside the plan's
+implied `Human`/`Mcp`/`Ai`) specifically to represent this — it is never a
+valid `approve()`/`reject()` actor either, since those remain typed to
+`User`.
+
+**Audit append-only enforcement is Eloquent-model-event-based, per the
+brief's own scoping ("append-only *at the application layer*").**
+`AuditEvent::booted()` throws a dedicated `AuditEventImmutable` exception
+from the `updating`/`deleting` model events, which also catches Eloquent's
+own `update()`/`delete()` convenience methods (both dispatch the same
+events). This does **not** stop a raw mass `AuditEvent::query()->delete()`
+or `DB::table('audit_events')->update(...)` — Eloquent mass-query
+operations bypass model events entirely, a general Eloquent limitation,
+not something specific to this model. True tamper-proofing (DB triggers, a
+restricted DB user/role) is out of scope for "application layer" and left
+for a later hardening task if ever needed.
+
+**Broadcast payload is a hand-built allow-list, not the Operation model.**
+`OperationUpdated::broadcastWith()` returns exactly `{id, type, status,
+risk, error_code, outcome, updated_at}` — it never touches
+`redacted_input`, `target`, or any handler-supplied `output`. `target` was
+excluded even though it looks harmless for most operation types (a config
+file path) because for `rcon.command` it is the literal, un-redacted
+command text — Task 10's `CommandPolicy`-driven redaction of command
+strings doesn't exist yet, and this task has no way to know if a given
+command string is safe to broadcast. Excluding it outright, rather than
+attempting content-sniffing here, keeps the guarantee "zero secrets in the
+broadcast payload" true independent of what Task 10 eventually does.
+`OperationRequest::rconCommand()` defaults to `OperationRisk::Elevated`
+for the same reason — no policy exists yet to classify it more precisely.
+
+**Generic key-name redaction (`InputRedactor`) is a coarse safety net,
+not the real secret-awareness.** It masks any metadata value whose key
+matches `/password|secret|token|credential|api[_-]?key|private[_-]?key/i`,
+recursively through nested arrays, before anything is persisted
+(`Operation.redacted_input`, `ChangeProposal.before/after`,
+`AuditEvent.payload`). It does not — and cannot — know that, say, a
+Geyser `config.yml`'s `floodgate-key` field is secret by schema rather
+than by name; that precise, schema-aware redaction belongs to Task 8
+(config diffing) and Task 10 (`CommandPolicy`). `InputRedactor` is a
+last-line-of-defense floor under all operation types uniformly, not a
+substitute for domain-aware redaction.
+
+**Broadcasting was not actually wired up before this task.** Despite
+`laravel/reverb` being a Milestone 1 dependency and Task 2's
+`docker/supervisor/supervisord.conf` already running `reverb:start`,
+`config/broadcasting.php` did not exist in the app (Laravel's core
+`BroadcastServiceProvider` does not `mergeConfigFrom()` a default, unlike
+most other framework config files) and `bootstrap/app.php`'s
+`withRouting()` call had no `channels:` argument, so `Broadcast::channel()`
+registrations and the `/broadcasting/auth` route were never registered at
+all. This task publishes `config/broadcasting.php` (framework-standard
+content; `default` falls back to `env('BROADCAST_CONNECTION', 'reverb')`)
+and adds `channels: __DIR__.'/../routes/channels.php'` to `withRouting()`.
+`.env`/`.env.example` are deliberately left at `BROADCAST_CONNECTION=log`
+(a safe, network-free default for local dev) rather than switched to
+`reverb`, since no `REVERB_APP_ID`/`REVERB_APP_KEY`/`REVERB_APP_SECRET`
+env vars exist anywhere yet (not in `.env.example`, not in
+`compose.example.yml`) — provisioning those and wiring `compose.example.yml`
+for real Reverb credentials is left to whichever later task first needs a
+frontend to actually subscribe to a channel (Task 11, "Realtime Console")
+or the infra-hardening tasks (19/21). `phpunit.xml` already pinned
+`BROADCAST_CONNECTION=null` for tests, so none of this affects the test
+suite.
+
+**`ChangeProposal` is generic and one level deep, not domain-aware.**
+`OperationService::propose()` derives one `ChangeProposal` row per
+top-level (and, for nested arrays, one level nested) key in the request's
+already-redacted metadata, purely mechanically. Task 8's
+`ConfigChangeService` is expected to build richer, schema-aware proposals
+(unified diffs, validation results, documentation citations per the plan)
+on top of this generic layer rather than relying on it as the final
+review UI's data source.
+
+**New tables:** `operations` (UUID primary key via `HasUuids`), tightly
+scoped to the columns the brief's ambiguity resolutions enumerate (actor
+type/id/origin recorded twice — once for authorship, once for
+approval/rejection — risk, redacted input, timestamps, outcome, error
+code, correlation id), plus `operation_steps`, `change_proposals`, and
+`audit_events` (append-only, `created_at` only — no `updated_at` column
+exists at all, not just blocked at the app layer).

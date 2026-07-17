@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Operations\OperationHandlerRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // OperationHandlerRegistry is built from every service tagged
+        // 'operation.handler'. No concrete handler exists yet (Task 5) —
+        // Tasks 8, 10, and 15 register theirs with, e.g.:
         //
+        //   $this->app->tag(ConfigApplyHandler::class, 'operation.handler');
+        //
+        // See App\Operations\OperationHandlerRegistry's docblock for the
+        // full extension convention.
+        $this->app->singleton(OperationHandlerRegistry::class, fn ($app) => new OperationHandlerRegistry(
+            $app->tagged('operation.handler'),
+        ));
     }
 
     /**
