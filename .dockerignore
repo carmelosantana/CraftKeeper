@@ -1,0 +1,63 @@
+# Version control
+.git
+.gitattributes
+.gitignore
+
+# Secrets and local environment - never bake these into an image
+.env
+.env.*
+!.env.example
+
+# Dependencies are installed fresh inside the image
+/vendor
+/node_modules
+
+# Build output is regenerated inside the image
+/public/build
+/public/hot
+/public/storage
+/bootstrap/ssr
+/bootstrap/cache/*.php
+/resources/js/actions
+/resources/js/routes
+/resources/js/wayfinder
+
+# Local runtime state, never shipped in the image
+/storage/*.key
+/storage/craftkeeper
+/storage/framework/cache/*
+!/storage/framework/cache/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+/database/*.sqlite*
+
+# Project material irrelevant to the running application
+/Design
+/docs
+/.superpowers
+/.github
+/tests
+
+# Editor/IDE
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+.DS_Store
+
+# Dev-only tooling not used by the production build
+/phpstan.neon
+/pint.json
+/playwright.config.ts
+/vitest.config.ts
+
+# Docs not needed at build time (README is small; keep it for LICENSE context)
+/.phpunit.cache
+.phpunit.result.cache

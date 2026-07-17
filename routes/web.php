@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\HealthController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/up', HealthController::class)->name('health');
 
 Route::inertia('/', 'welcome')->name('home');
 
