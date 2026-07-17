@@ -26,7 +26,12 @@ return new class extends Migration
         Schema::create('operations', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('type');
-            $table->string('status');
+            // Defaults to the initial lifecycle state so that any insert
+            // which omits `status` (as OperationService::propose() no
+            // longer needs to, but a defense-in-depth fallback should)
+            // lands as Proposed rather than failing a NOT NULL constraint
+            // or defaulting to an empty string.
+            $table->string('status')->default('proposed');
             $table->string('target')->nullable();
             $table->string('risk')->default('standard');
 

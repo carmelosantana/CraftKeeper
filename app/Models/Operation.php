@@ -43,19 +43,41 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $finished_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ *
+ * Trust boundary invariant: `status` and every transition/approval/
+ * rejection/outcome column below are deliberately NOT mass-assignable.
+ * Only App\Operations\OperationService may move an Operation through its
+ * lifecycle, and it does so via forceCreate()/forceFill() with hand-built
+ * arrays, never by funneling request-derived data through create()/update().
+ * This is what makes "only an approved operation may invoke a mutation
+ * port" actually true: a mass-assigned `status => approved` from an
+ * untrusted array is silently ignored rather than minting an
+ * already-approved operation.
  */
 #[Fillable([
-    'type', 'status', 'target', 'risk',
+    'type', 'target', 'risk',
     'author_type', 'author_id', 'author_origin',
-    'approved_by_type', 'approved_by_id', 'approved_at',
-    'rejected_by_type', 'rejected_by_id', 'rejected_at',
-    'redacted_input', 'outcome', 'error_code', 'correlation_id',
-    'started_at', 'finished_at',
+    'redacted_input', 'correlation_id',
 ])]
 class Operation extends Model
 {
     /** @use HasFactory<OperationFactory> */
     use HasFactory, HasUuids;
+
+    /**
+     * Belt-and-suspenders alongside the mass-assignment guard above: force
+     * a fresh Operation to start life as Proposed even if something
+     * constructs one without ever touching `status` (e.g. `status` being
+     * stripped by the fillable guard on a plain create() call). The
+     * `status` column also DB-defaults to 'proposed' so this holds even
+     * for inserts that bypass Eloquent events entirely.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $operation) {
+            $operation->status ??= OperationStatus::Proposed;
+        });
+    }
 
     /**
      * @return array<string, string>

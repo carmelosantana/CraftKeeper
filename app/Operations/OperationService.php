@@ -58,7 +58,11 @@ class OperationService
         return DB::transaction(function () use ($request, $author) {
             $redactedInput = InputRedactor::redact($request->metadata);
 
-            $operation = Operation::query()->create([
+            // status is not mass-assignable (see the invariant documented on
+            // the model), so it's set explicitly here via forceCreate()
+            // rather than folded into an untrusted-shaped array — this is
+            // the one place that's allowed to happen.
+            $operation = Operation::query()->forceCreate([
                 'type' => $request->type,
                 'status' => OperationStatus::Proposed,
                 'target' => $request->target,
