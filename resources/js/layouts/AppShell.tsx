@@ -2,7 +2,10 @@ import { Link, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { RestartRequired } from '@/components/craftkeeper/RestartRequired';
-import { STATUS_BADGE_META } from '@/components/craftkeeper/StatusBadge';
+import {
+    STATUS_BADGE_META,
+    StatusGlyph,
+} from '@/components/craftkeeper/StatusBadge';
 import type { StatusBadgeStatus } from '@/components/craftkeeper/StatusBadge';
 import {
     DropdownMenu,
@@ -23,8 +26,6 @@ import { CkThemeProvider, useCkTheme } from '@/hooks/use-ck-theme';
 import type { CkAccentName, CkThemeName } from '@/hooks/use-ck-theme';
 import { useCurrentUrl } from '@/hooks/use-current-url';
 import type { IsCurrentUrlFn } from '@/hooks/use-current-url';
-import { ckToneColor } from '@/lib/ck-tokens';
-import { cn } from '@/lib/utils';
 
 /**
  * `Design/handoff/pages.json` → `primaryNavigation`. This is the single
@@ -204,22 +205,30 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
         >
             <div className="flex items-center gap-2">
                 <span
-                    role="status"
-                    aria-label={`Server ${meta.label}`}
-                    className={cn(server.status === 'online' && 'ck-pulse')}
-                    style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 2,
-                        flex: 'none',
-                        backgroundColor: ckToneColor(meta.tone),
-                    }}
-                />
-                <span
-                    className="truncate text-[13px] font-bold"
+                    className="min-w-0 flex-1 truncate text-[13px] font-bold"
                     style={{ color: 'var(--ck-text)' }}
                 >
                     {server.name}
+                </span>
+                {/* Status must never rely on color alone: pair the same
+                    per-status shape glyph StatusBadge uses elsewhere
+                    (square-pulse for online, triangle for
+                    pending-restart, etc.) with a visible text label,
+                    rather than color alone. This reuses StatusGlyph
+                    directly rather than the full StatusBadge chip: the
+                    chip's tinted fill is only contrast-verified against
+                    --ck-surface (see design-tokens.json), and this card
+                    sits on --ck-elevated — --ck-text-2 is the token
+                    already proven AA-safe on --ck-elevated (see the
+                    address line below). */}
+                <span
+                    role="status"
+                    aria-label={meta.label}
+                    className="inline-flex shrink-0 items-center gap-[5px] text-[10.5px] font-semibold"
+                    style={{ color: 'var(--ck-text-2)' }}
+                >
+                    <StatusGlyph tone={meta.tone} glyph={meta.glyph} />
+                    {meta.label}
                 </span>
             </div>
             <div
@@ -326,8 +335,15 @@ function AppShellChrome({
                         type="button"
                         aria-label="Open navigation"
                         onClick={() => setMobileNavOpen(true)}
-                        className="flex size-9 flex-none items-center justify-center rounded-[7px] border lg:hidden"
-                        style={{ borderColor: 'var(--ck-border-strong)' }}
+                        className="flex flex-none items-center justify-center rounded-[7px] border lg:hidden"
+                        style={{
+                            borderColor: 'var(--ck-border-strong)',
+                            // Design system's own declared minimum mobile
+                            // hit target (resources/css/app.css) — not a
+                            // magic 44px.
+                            minWidth: 'var(--ck-min-mobile-hit-target)',
+                            minHeight: 'var(--ck-min-mobile-hit-target)',
+                        }}
                     >
                         <span
                             aria-hidden="true"
@@ -390,8 +406,12 @@ function AppShellChrome({
                         type="button"
                         aria-label="Search or run a command"
                         onClick={() => setPaletteOpen(true)}
-                        className="flex size-9 flex-none items-center justify-center rounded-[7px] border sm:hidden"
-                        style={{ borderColor: 'var(--ck-border-strong)' }}
+                        className="flex flex-none items-center justify-center rounded-[7px] border sm:hidden"
+                        style={{
+                            borderColor: 'var(--ck-border-strong)',
+                            minWidth: 'var(--ck-min-mobile-hit-target)',
+                            minHeight: 'var(--ck-min-mobile-hit-target)',
+                        }}
                     >
                         <span
                             aria-hidden="true"

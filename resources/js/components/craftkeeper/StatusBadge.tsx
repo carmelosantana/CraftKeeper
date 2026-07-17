@@ -60,7 +60,13 @@ export interface StatusBadgeProps {
     className?: string;
 }
 
-function StatusGlyph({
+/**
+ * Exported so call sites that can't use the full `StatusBadge` chip (e.g.
+ * a compact card whose background isn't one of the chip fill's
+ * contrast-verified surfaces) can still pair the same per-status shape
+ * catalog with their own visible label.
+ */
+export function StatusGlyph({
     tone,
     glyph,
 }: {
