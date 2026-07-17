@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Filesystem\LocalMinecraftFilesystem;
 use App\Filesystem\MinecraftFilesystem;
+use App\Operations\Handlers\ConfigApplyHandler;
+use App\Operations\Handlers\ConfigRestoreHandler;
 use App\Operations\OperationHandlerRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -19,13 +21,12 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         // OperationHandlerRegistry is built from every service tagged
-        // 'operation.handler'. No concrete handler exists yet (Task 5) —
-        // Tasks 8, 10, and 15 register theirs with, e.g.:
-        //
-        //   $this->app->tag(ConfigApplyHandler::class, 'operation.handler');
-        //
-        // See App\Operations\OperationHandlerRegistry's docblock for the
-        // full extension convention.
+        // 'operation.handler'. Task 8 registers the first two concrete
+        // handlers here; Tasks 10 and 15 register theirs the same way. See
+        // App\Operations\OperationHandlerRegistry's docblock for the full
+        // extension convention.
+        $this->app->tag([ConfigApplyHandler::class, ConfigRestoreHandler::class], 'operation.handler');
+
         $this->app->singleton(OperationHandlerRegistry::class, fn ($app) => new OperationHandlerRegistry(
             $app->tagged('operation.handler'),
         ));

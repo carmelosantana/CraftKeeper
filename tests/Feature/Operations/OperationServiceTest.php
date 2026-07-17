@@ -191,8 +191,11 @@ it('allows the documented rollback path from both Succeeded and Failed', functio
 it('degrades cleanly to Failed with a typed error code when no handler is registered', function () {
     $admin = User::factory()->create();
 
+    // ConfigApply/ConfigRestore have real handlers as of Task 8 (see
+    // App\Providers\AppServiceProvider); serverStop() still has none
+    // until Task 15, so it remains a faithful "no handler" example here.
     $operation = app(OperationService::class)->propose(
-        OperationRequest::configApply('server.properties', 'sha', ['allow-flight' => 'true']),
+        OperationRequest::serverStop(),
         OperationAuthor::user($admin->id)
     );
 
@@ -212,7 +215,7 @@ it('never throws when executing an operation type with no registered handler', f
 });
 
 it('records an execution step alongside the failed operation when no handler is registered', function () {
-    $operation = Operation::factory()->status(OperationStatus::Approved)->create();
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
 
     app(OperationService::class)->execute($operation->id);
 
@@ -223,11 +226,15 @@ it('records an execution step alongside the failed operation when no handler is 
 });
 
 it('runs a registered handler and preserves its diagnostic error code on failure', function () {
+    // Uses PluginInstall (no real handler until Task 15) rather than
+    // ConfigApply, which Task 8 gave a real handler that would otherwise
+    // resolve ahead of this test's own fake one — see
+    // OperationHandlerRegistry::resolve()'s "first match wins" contract.
     $handler = new class implements OperationHandler
     {
         public function supports(OperationType $type): bool
         {
-            return $type === OperationType::ConfigApply;
+            return $type === OperationType::PluginInstall;
         }
 
         public function execute(Operation $operation): OperationResult
@@ -243,7 +250,7 @@ it('runs a registered handler and preserves its diagnostic error code on failure
 
     app(OperationHandlerRegistry::class)->register($handler);
 
-    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ConfigApply)->create();
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginInstall)->create();
 
     $result = app(OperationService::class)->execute($operation->id);
 
@@ -272,7 +279,10 @@ it('converts an exception thrown by a handler into a failed operation instead of
 
     app(OperationHandlerRegistry::class)->register($handler);
 
-    $operation = Operation::factory()->status(OperationStatus::Approved)->create();
+    // ServerStop (no real handler until Task 15) rather than the
+    // default ConfigApply, which Task 8's own handler would otherwise
+    // resolve ahead of this test's "supports everything" fake.
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
 
     expect(fn () => app(OperationService::class)->execute($operation->id))->not->toThrow(Throwable::class);
 
@@ -302,7 +312,9 @@ it('runs a registered handler and transitions to Succeeded', function () {
 
     app(OperationHandlerRegistry::class)->register($handler);
 
-    $operation = Operation::factory()->status(OperationStatus::Approved)->create();
+    // Same reasoning as the preceding test: ServerStop still has no real
+    // handler, so this test's own fake is the only one that resolves.
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
 
     $result = app(OperationService::class)->execute($operation->id);
 

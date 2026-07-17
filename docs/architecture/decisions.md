@@ -1038,3 +1038,168 @@ config-reference anchors follow that site's own per-key anchor
 convention but were not individually re-verified byte-for-byte — a minor,
 disclosed gap that only affects a deep-link's exact scroll position, not
 which document opens.
+
+## Task 8 — Configuration Proposal, Conflict, Snapshot, and Restore Services
+
+**The raw proposed change set lives in a NEW dedicated, encrypted table
+(`config_change_payloads` / `App\Models\ConfigChangePayload`), never a
+column on `operations` — the one escalation-worthy seam decision this task
+made itself rather than guessing blindly.** Task 5's own migration
+docblock states, as a tested invariant, that every persisted "input"-shaped
+column on `operations`/`change_proposals`/`audit_events` holds only
+pre-redacted data, "never raw secret values, even encrypted; real secrets
+live exclusively in the `secrets` table." A proposed new `rcon.password`
+value is exactly the kind of raw secret that invariant describes, so
+folding it into `Operation::redacted_input` (even behind a second,
+encrypted-only column) would either contradict that documented guarantee
+or require re-litigating it. Instead, `ConfigChangePayload` mirrors
+`App\Models\Secret`'s exact pattern (Task 4) as its own single-purpose
+table: `changes` uses Laravel's `encrypted:array` cast and is `#[Hidden]`,
+so it can never reach `toArray()`/`toJson()`/a broadcast even by accident,
+and it is never joined, eager-loaded, or referenced by anything except the
+two config operation handlers that legitimately need the real value at
+write time. This was judged decidable without a human round trip — it is
+additive (a new table Task 5 never touches or has any awareness of) and
+strictly narrows the secret-exposure surface compared to every alternative
+considered (a raw column on `operations`, or reusing `secrets`, which is
+keyed for a fixed set of CraftKeeper's OWN operational secrets, not
+arbitrary in-flight proposed values).
+
+**`App\Operations\Handlers\Concerns\AppliesConfigChanges` is a shared
+trait, not a base class or a third "config write service."**
+`ConfigApplyHandler` and `ConfigRestoreHandler` need to be two DISTINCT
+`OperationHandler` implementations so `OperationHandlerRegistry::resolve()`
+can dispatch `OperationType::ConfigApply`/`ConfigRestore` independently
+(ambiguity resolution #1) — but their actual write logic (TOCTOU re-check
+via `writeAtomically()`'s own optimistic concurrency, snapshot-then-write,
+compensating rollback on a post-write verification failure, revision +
+audit creation) is identical. A trait keeps that logic in exactly one
+place while still satisfying "two container-tagged classes, one per type."
+
+**Secret redaction in the unified diff has a real correctness trap: a
+changed secret value can vanish from the diff entirely.** Masking a
+secret field's value to `••••••` independently in the "before" and
+"after" file content (so an unrelated, unchanged secret never leaks as
+diff context — see `ConfigDiffBuilder::redactSecrets()`) means an ACTUAL
+change to that field produces two byte-identical masked lines, which the
+line-diff then collapses as "no change" — hiding from a reviewer that a
+password is being rotated at all, not just hiding its value. This was
+caught by the TDD loop itself (`tests/Feature/Config/
+ConfigChangeServiceTest.php`'s secret-redaction test initially failed
+with an empty diff, not a leaked value) and fixed by having
+`redactSecrets()` append a fixed, constant, invisible U+200B marker to a
+CHANGING secret field's masked value on the "after" side only — forcing
+the line-diff to treat it as textually different from its "before"
+counterpart (so it renders as a `-`/`+` pair) while both sides still
+display as the identical six-bullet mask to a human. The marker is
+constant and unconditional (never derived from the real value), so it
+encodes zero information about the secret itself.
+
+**Two distinctly-keyed snapshots per successful apply/restore, not one.**
+`App\Filesystem\SnapshotStore::copy()` (Task 6) always captures the
+file's CURRENT bytes at the moment it's called, keyed by whatever id the
+caller passes. The handler needs two DIFFERENT captures with two
+DIFFERENT purposes: a pre-write snapshot (keyed by the bare operation id)
+purely as a rollback safety net if the write's own post-verification
+fails, and a post-write snapshot (keyed by `{operationId}-after`) as the
+durable "this is what this revision's content actually is," which
+`ConfigRevision::snapshot_path` points at and `ConfigRevisionService::
+restore()` reads back later. Reusing one key for both would silently
+destroy the pre-write copy the instant the post-write copy was captured.
+
+**`OperationHandler::rollback()` (undoing a previously-succeeded
+operation, a separate lifecycle action from the automatic compensating
+rollback above) reconstructs the pre-write snapshot's absolute path from
+`SnapshotStore`'s own documented directory convention
+(`{DATA_ROOT}/snapshots/{operationId}/{relativePath}`) rather than a new
+filesystem read-back method.** Task 6's `MinecraftFilesystem` interface
+(a Stable Interface) has no "read a past snapshot" operation, and
+`copyToSnapshot()` always captures the CURRENT file, which is the wrong
+content for this purpose. Re-deriving the documented path convention
+locally, rather than extending Task 6's fixed interface, keeps this
+entirely inside Task 8's own files.
+
+**A validation failure (`InvalidConfigChange`, or a schema-invalid
+result) is caught and stored as `redacted_input.valid = false` +
+diagnostics on an otherwise normal Proposed Operation — it is NEVER
+thrown out of `propose()`, and the Operation it produces is never silently
+written even if later approved.** `ConfigApplyHandler`/`ConfigRestoreHandler`
+independently re-run `applyChanges()`/`validate()` against the CURRENT
+file at execute() time (not trusting whatever `propose()` saw) and fail
+the operation (`config.invalid_change` / `config.validation_failed`)
+rather than write, so "validation prevents approval" holds even if a
+caller somehow approved an already-known-invalid proposal — defense in
+depth rather than relying solely on a future Task 9 UI disabling the
+approve button.
+
+**Defense in depth against a schema-validator diagnostic message
+embedding a raw secret value.** `App\Config\Schemas\SchemaValidator`'s
+"not an allowed value" / "outside the recognized range" diagnostics embed
+the actual out-of-range value in their message text by design (safe today
+only because no `secret: true` field in `resources/schemas/config/`
+currently declares `allowedValues`/`range`). Rather than depend on that
+staying true forever, `ConfigChangeService::safeDiagnosticMessage()`
+replaces any diagnostic pinned to a secret field's path with a generic,
+value-free message before it is ever persisted, audited, or broadcast.
+
+**Proposal expiration (`expires_at`) is enforced defensively at
+execute()-time, not by a database-level TTL/cron sweep.** The V1 plan
+lists "expiration" among what a proposal stores; rather than add
+scheduling infrastructure this task doesn't otherwise need,
+`AppliesConfigChanges::applyApprovedChange()` checks
+`redacted_input.expires_at` against `now()` immediately before doing
+anything else and fails the operation (`config.proposal_expired`) if it
+has passed. Task 9's UI is expected to also surface/disable an expired
+proposal in review, but the safety property ("an old proposal can never
+silently execute far later") holds at the service layer regardless.
+
+**The stored unified diff shows the WHOLE file with full context, not a
+windowed `diff -u`-style hunk with `@@ -a,b +c,d @@` line-number
+headers.** `App\Config\ConfigDiffBuilder` runs a standard O(n·m) LCS line
+diff (config files are realistically tens to a few hundred lines; a
+400,000-cell ceiling falls back to a coarse "file changed" placeholder
+for anything pathological) but deliberately skips hunk-window bookkeeping
+entirely — every line is emitted as context/`-`/`+`, unconditionally.
+This is simpler, cannot disagree with itself about line numbers after a
+patch shifts offsets, and a config-review UI (Task 9) is exactly the kind
+of tool where showing full-file context by default (with client-side
+collapsing of unchanged runs, if wanted) is more useful than a terminal
+`diff`'s scarcity-motivated windowing.
+
+**`ConfigRevisionService::restore()`'s field-by-field diff toward a
+revision is explicitly best-effort, matching the plan's own "propose the
+changes needed to return it toward the revision" wording — not a
+byte-identical restoration guarantee.** It diffs only the two contents'
+locatable scalar leaves (`ConfigFormatAdapter::parse()->nodes` — exactly
+what `ConfigChange` can express field-by-field), the same scope a normal
+guided/structured edit is limited to. A structural difference outside
+that scope (e.g. a reordered YAML sequence) is not represented as a
+change; this is a disclosed, existing limitation of the scalar-leaf model
+established in Task 7, not a new one introduced here.
+
+**Five pre-existing Task 5 tests were updated, not just left broken, now
+that concrete handlers exist.** `OperationHandlerRegistryTest`'s "binds an
+empty registry by default" test and four `OperationServiceTest` tests
+exercised the generic handler-resolution/execution mechanics using
+`OperationType::ConfigApply` purely as a stand-in "no handler exists yet"
+example — exactly what Task 5's own docblocks anticipated changing
+("no concrete handler exists yet ... see Tasks 8, 10, 15"). Now that
+`ConfigApplyHandler` is a real, container-tag-registered handler, those
+tests' choice of `ConfigApply` (as either the executed type or a type a
+locally-registered fake handler claims to support) collides with it —
+`OperationHandlerRegistry::resolve()`'s documented "first registered
+handler wins" contract means the real handler, registered during
+container boot, now resolves ahead of a test's ad-hoc fake one. Each test
+was updated to use `OperationType::ServerStop`/`PluginInstall` (still
+genuinely unhandled until Tasks 10/15) instead, preserving exactly what
+each test actually verifies (OperationService's generic resolution/
+execution/exception-handling mechanics) without depending on which
+`OperationType` happens to be handler-free at any given task.
+
+**Risk/restart-impact aggregation across a multi-field change set takes
+the single riskiest/most-impactful field, not an average or a sum.** A
+`ConfigChangeRequest` touching one `risk: low` field and one `risk: high`
+field is classified `OperationRisk::Elevated` overall (mirroring
+`RestartImpact`'s own `None < Reload < Restart` ordering) — a reviewer
+must see the worst consequence of approving the whole batch, not a
+diluted average.
