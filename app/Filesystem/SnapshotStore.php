@@ -46,6 +46,7 @@ class SnapshotStore
         $tempPath = $destinationDir.'/.'.basename($path->relativePath).'.ck-tmp-'.bin2hex(random_bytes(8));
 
         if (file_put_contents($tempPath, $contents, LOCK_EX) === false) {
+            @unlink($tempPath);
             throw AtomicWriteFailed::duringWrite($path);
         }
 

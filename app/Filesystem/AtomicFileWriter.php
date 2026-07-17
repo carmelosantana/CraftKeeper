@@ -202,7 +202,7 @@ class AtomicFileWriter
             File::makeDirectory($locksDir, 0755, true, true);
         }
 
-        $lockFile = $locksDir.'/'.hash('sha256', $path->relativePath).'.lock';
+        $lockFile = $locksDir.'/'.hash('sha256', $path->absolutePath).'.lock';
         $handle = fopen($lockFile, 'c');
 
         if ($handle === false) {
