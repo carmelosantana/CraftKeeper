@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -117,14 +118,28 @@ class OnboardingController extends Controller
      * rest, never re-rendered). No live connection test is performed yet
      * (Task 10) — the "Test connection" control in the UI is a labeled
      * placeholder.
+     *
+     * Validated by hand (instead of `$request->validate()`) so that a
+     * failure can be turned into a redirect with `rcon_password` excluded
+     * from the flashed old-input session data. Laravel's default
+     * `dontFlash` list only covers `password`/`password_confirmation`/
+     * `current_password`, so letting the framework's exception handler
+     * build the redirect would flash this plaintext secret into the
+     * session store — which the app's secret-handling policy forbids.
      */
     public function storeRcon(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'rcon_host' => ['nullable', 'string', 'max:255'],
             'rcon_port' => ['nullable', 'integer', 'between:1,65535'],
             'rcon_password' => ['nullable', 'string', 'max:255'],
         ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->exceptInput('rcon_password');
+        }
+
+        $validated = $validator->validated();
 
         Setting::put('rcon.host', $validated['rcon_host'] ?? null);
         Setting::put('rcon.port', isset($validated['rcon_port']) ? (string) $validated['rcon_port'] : null);
@@ -151,13 +166,23 @@ class OnboardingController extends Controller
     /**
      * POST /onboarding/ai — optionally save an AI provider + API key.
      * Real wiring lands in Task 16; this only persists the values.
+     *
+     * Validated by hand for the same reason as `storeRcon()` above: a
+     * failed validation must not flash the plaintext `ai_api_key` into
+     * the session's old-input store.
      */
     public function storeAi(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'ai_provider' => ['nullable', 'string', 'max:100'],
             'ai_api_key' => ['nullable', 'string', 'max:1024'],
         ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->exceptInput('ai_api_key');
+        }
+
+        $validated = $validator->validated();
 
         if (filled($validated['ai_provider'] ?? null)) {
             Setting::put('ai.provider', $validated['ai_provider']);

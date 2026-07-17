@@ -168,3 +168,52 @@ it('never serializes a Secret value even if the model is dumped directly', funct
         ->and($secret->fresh()->toArray())->not->toHaveKey('value')
         ->and(json_encode($secret))->not->toContain('super-secret-rcon-password');
 });
+
+it('never flashes the rcon password to the session when a sibling field fails validation', function () {
+    $this->post('/onboarding/admin', [
+        'name' => 'Admin',
+        'email' => 'admin@example.com',
+        'password' => 'a-long-unique-passphrase',
+        'password_confirmation' => 'a-long-unique-passphrase',
+    ]);
+
+    $rconPassword = 'a-perfectly-valid-rcon-password';
+
+    $response = $this->post('/onboarding/rcon', [
+        'rcon_host' => '127.0.0.1',
+        'rcon_port' => 99999, // out of range: fails `between:1,65535`
+        'rcon_password' => $rconPassword,
+    ]);
+
+    $response->assertSessionHasErrors('rcon_port');
+
+    // The secret must never be flashed as old input...
+    expect(session()->getOldInput('rcon_password'))->toBeNull();
+
+    // ...but a non-secret sibling field still repopulates normally.
+    expect(session()->getOldInput('rcon_host'))->toBe('127.0.0.1');
+});
+
+it('never flashes the ai api key to the session when a sibling field fails validation', function () {
+    $this->post('/onboarding/admin', [
+        'name' => 'Admin',
+        'email' => 'admin@example.com',
+        'password' => 'a-long-unique-passphrase',
+        'password_confirmation' => 'a-long-unique-passphrase',
+    ]);
+
+    $aiApiKey = 'sk-a-perfectly-valid-ai-api-key';
+
+    $response = $this->post('/onboarding/ai', [
+        'ai_provider' => str_repeat('x', 101), // exceeds `max:100`
+        'ai_api_key' => $aiApiKey,
+    ]);
+
+    $response->assertSessionHasErrors('ai_provider');
+
+    // The secret must never be flashed as old input...
+    expect(session()->getOldInput('ai_api_key'))->toBeNull();
+
+    // ...but a non-secret sibling field still repopulates normally.
+    expect(session()->getOldInput('ai_provider'))->not->toBeNull();
+});
