@@ -1,0 +1,59 @@
+{
+    "id": "floodgate",
+    "title": "Floodgate",
+    "format": "yaml",
+    "fields": [
+        {
+            "path": "key-file-name",
+            "type": "string",
+            "title": "Key file name",
+            "description": "The filename, inside Floodgate's own plugin folder, of the encryption key pair used to authenticate Bedrock players. The matching public key must be copied to every Geyser instance that should trust this Floodgate — never share the private key itself.",
+            "default": "key.pem",
+            "restartImpact": "restart",
+            "risk": "high",
+            "allowedValues": null,
+            "range": null,
+            "secret": false,
+            "documentationUrl": "https://geysermc.org/wiki/floodgate/setup/"
+        },
+        {
+            "path": "username-prefix",
+            "type": "string",
+            "title": "Username prefix",
+            "description": "Prefix added to a Bedrock player's Java-facing username to avoid colliding with a real Java account of the same name.",
+            "default": ".",
+            "restartImpact": "restart",
+            "risk": "medium",
+            "allowedValues": null,
+            "range": null,
+            "secret": false,
+            "documentationUrl": "https://geysermc.org/wiki/floodgate/setup/"
+        },
+        {
+            "path": "replace-spaces",
+            "type": "boolean",
+            "title": "Replace spaces in usernames",
+            "description": "Replaces spaces in a Bedrock player's display name with underscores when deriving their Java-facing username.",
+            "default": true,
+            "restartImpact": "restart",
+            "risk": "low",
+            "allowedValues": null,
+            "range": null,
+            "secret": false,
+            "documentationUrl": "https://geysermc.org/wiki/floodgate/setup/"
+        },
+        {
+            "path": "send-floodgate-data",
+            "type": "boolean",
+            "title": "Send Floodgate data",
+            "description": "Enable only on a proxy running Floodgate in front of backend servers that also run Floodgate, so authentication data is forwarded downstream.",
+            "default": false,
+            "restartImpact": "restart",
+            "risk": "high",
+            "allowedValues": null,
+            "range": null,
+            "secret": false,
+            "documentationUrl": "https://geysermc.org/wiki/floodgate/setup/"
+        }
+    ]
+}

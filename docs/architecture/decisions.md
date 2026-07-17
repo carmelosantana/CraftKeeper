@@ -807,3 +807,234 @@ auto-vivified (unlike `data_root`, which `HealthController` self-heals):
 a missing/misconfigured Minecraft root should always surface as
 `MinecraftRootUnavailable`, never silently operate against a phantom
 directory CraftKeeper invented on its own.
+
+## Task 7 — Configuration Formats, Schemas, and Validation
+
+**`ConfigChange` created in Task 7, not Task 8 (scheduling inconsistency
+resolved as instructed).** The plan's file list puts `app/Config/
+ConfigChange.php` under Task 8, but Task 7's own brief test already
+calls `ConfigChange::replace('allow-flight', true)` against a bare
+`PropertiesAdapter`, with no `ConfigChangeService`/`ConfigChangeRequest`
+in scope yet. `ConfigChange` is a small, dependency-free immutable value
+object (a `ConfigChangeKind` enum + dotted `path` + `value`), so creating
+it now costs nothing architecturally and unblocks the brief's own test as
+written. Task 8 builds `ConfigChangeRequest`/`ConfigChangeService` on top
+of it and should find it already present — no changes to this file are
+expected in Task 8 unless a genuinely new change kind is discovered.
+
+**`ConfigFormatAdapter::applyChanges()` keeps the plan's exact `string`
+return type; the normalization-warning flag is carried by a second,
+non-interface method instead.** Ambiguity resolution #2 requires a
+generic structured save that can't preserve comments to "set a
+normalization-warning flag on its result," but the Stable Interface's
+`applyChanges(string $contents, array $changes, ?ConfigSchema $schema):
+string` has no room for a second return value, and the interface is
+explicitly fixed so tasks can be built independently. Rather than
+weakening that contract, `YamlAdapter`, `TomlAdapter`, and `JsonAdapter`
+each additionally expose `willNormalize(string $contents, array
+$changes, ?ConfigSchema $schema): bool` — not part of `ConfigFormatAdapter`,
+but present on every concrete adapter class with the same signature, so
+Task 8/9 can call it identically regardless of format before invoking
+`applyChanges()`, to decide whether to surface a "this will reformat the
+file and drop comments" warning before proposal creation. Every adapter's
+`willNormalize()` reuses the exact same internal classification logic
+`applyChanges()` itself uses (a shared private `classify()` on
+Yaml/TomlAdapter), so the preview can never drift from what actually
+happens. `PropertiesAdapter::willNormalize()` always returns `false`
+(Properties can always patch in place) and `JsonAdapter::willNormalize()`
+always returns `true` for a non-empty change set (JSON always fully
+re-serializes, honestly, even though JSON never had comments to lose in
+the first place).
+
+**Source-preserving patch strategy: byte-offset spans over an AST.**
+Every scalar-patching adapter (Properties/YAML/TOML) locates a change's
+target as an exact `[offset, length)` span in the *original* source
+string and calls `substr_replace()` on just that span, rather than
+building and re-printing any kind of parse tree. This is the simplest
+design that satisfies "patch the original source spans" literally and
+byte-for-byte, and it composes cleanly across formats via one shared
+helper (`App\Config\Formats\Support\SourceLines`, a byte-accurate
+physical-line splitter that preserves whichever line-ending style — LF,
+CRLF, even mixed — the file already uses, since it never normalizes
+anything, only reports offsets). The tradeoff, accepted deliberately: a
+change is only patchable this way if the adapter can *locate* it as a
+single scalar leaf. Objects, arrays, YAML sequences, TOML
+arrays-of-tables, and any brand-new *nested* key fall back to a full
+decode → mutate → re-serialize, exactly as ambiguity resolution #2
+anticipates and allows.
+
+**YAML/TOML scalar-leaf location is a purpose-built line scanner, not a
+generic parser — and is deliberately scoped to leaf scalars only.** Both
+`YamlAdapter::locateScalarLeaves()` (indentation-stack-based, since YAML
+nests via indentation) and `TomlAdapter::locateScalarLeaves()`
+(`[table.header]`-prefix-based, since TOML nests via table headers, not
+indentation) walk physical lines once, track the current dotted-path
+prefix, and record a `ConfigNode` only for a line that is unambiguously
+"`key: value`"/"`key = value`" with a simple, un-quoted-content,
+non-block, non-flow scalar value. Sequence items (YAML `- foo`) and
+array-of-tables sections (TOML `[[name]]`) push an *opaque* stack/prefix
+marker instead of a real path — reusing one mechanism for two different
+"this subtree has no single stable dotted path" cases — so nothing
+nested under either is ever misattributed to the wrong container (this
+was caught by a real bug during implementation: see "top-level existing
+non-scalar" below). YAML block scalars (`|`/`>`) push the same opaque
+marker so multi-line body text is never misread as sibling mapping keys.
+Both scanners delegate actual scalar *decoding* to the real library
+(`Symfony\Component\Yaml\Yaml::parse()` on the isolated token; `yosymfony`'s
+`Toml::parse('x = '.$token)`) rather than hand-rolling YAML/TOML scalar
+grammar, and both scalar *rendering* similarly reuses the library where
+one exists (`Symfony\Component\Yaml\Inline::dump()` for YAML) or is a
+small, deliberately minimal hand-written renderer where the library
+doesn't expose one (TOML has no public single-scalar dumper in
+`yosymfony/toml`, so `TomlAdapter::renderScalar()`/`renderTomlString()`
+are hand-written — booleans/ints/floats/basic-escaped-double-quoted
+strings only, matching the actual value types Minecraft/Paper/Geyser/
+Floodgate configs use).
+
+**Real bug caught by the brief's own TDD requirement: "top-level key
+that already exists as a non-scalar value" was initially misclassified
+as `append`.** `YamlAdapter`/`TomlAdapter::classify()` decides `patch`
+(existing locatable scalar) vs. `append` (brand-new top-level key) vs.
+`normalize` (everything else) for a Replace/Add. The first version
+returned `append` for ANY top-level (dot-free) path with no locatable
+scalar node — which is wrong when that key already exists as an array or
+object (e.g. Replace on TOML's `tags = ["a","b"]`, or YAML's own
+`tags:` sequence): appending a second `key = value`/`key: value` line
+for an already-existing key doesn't just look wrong, it actively
+corrupts the file (TOML's own parser hard-errors on the resulting
+duplicate key; YAML would silently let the *later* duplicate mapping key
+override the first, invisibly discarding the array). `tests/Unit/Config/
+Formats/TomlAdapterTest.php`'s "flags normalization for a change to an
+array value" test caught this directly (asserted `willNormalize()` was
+`true`, got `false`) before either adapter shipped. Fixed by having
+`classify()` decode the full document and check `DotPath::has()` before
+ever returning `append` — only a path absent from the decoded data
+entirely is safe to append.
+
+**Second real, self-review-caught bug: patching a "bare key" (a
+null-valued leaf with no existing inline text) glued the new value onto
+the wrong thing because its zero-length span sits at a boundary that
+needs a delimiter re-inserted, not just text spliced in.** For
+`PropertiesAdapter`, a genuinely bare key (a line with no `=` at all,
+e.g. `bare-key` alone on a line — Java `.properties` permits this,
+treated as a null value) has its zero-length patch span positioned right
+after the key text with no `=` before it; naively splicing a rendered
+value there turned `bare-key` into `bare-keytrue` — no `=` at all,
+silently changing the *key itself* rather than adding a value. For
+`YamlAdapter`, a bare `key:` line (no inline value, no children — a
+null-valued leaf) has its zero-length span positioned immediately after
+the colon with no separating space; splicing a value there turned
+`bedrock:` into `bedrock:false`, which real YAML parsers read as a
+*single plain scalar key* named `bedrock:false` (confirmed by
+reproducing the resulting parse failure directly:
+`Symfony\Component\Yaml\Exception\ParseException: Mapping values are not
+allowed in multi-line blocks`), not `bedrock: false`. Neither was caught
+by any test written during the adapters' first pass — the brief's own
+self-review checklist item ("Properties/scalar edits preserve
+comments+ordering byte-for-byte") prompted directly exercising every
+zero-length-span code path by hand, which is what surfaced both. Fixed
+in `PropertiesAdapter::patchValue()` (re-checks, at patch time, whether
+the target line currently has no `=` delimiter at all — distinct from
+having `=` followed by an empty value, e.g. `level-seed=`, which needs
+no such fix — and prepends `=` only in that case) and
+`YamlAdapter::patchScalar()` (a zero-length span is unambiguous for YAML
+— it only ever arises from the bare-`key:` case — so it always prepends
+a single space). TOML has no analogous case: `TomlAdapter`'s locator
+never records a node for an empty value span (`key = ` with nothing
+after is simply skipped, and is invalid TOML on its own regardless).
+Both fixes are regression-tested directly (`tests/Unit/Config/Formats/
+PropertiesAdapterTest.php`: `'inserts the "=" delimiter when patching a
+bare key...'` and `'patches a key that already has "=" but an empty
+value...'`; `tests/Unit/Config/Formats/YamlAdapterTest.php`: `'inserts a
+separating space when patching a bare null-valued key...'`), each
+asserting both the exact byte output AND that re-parsing the result
+recovers the intended value.
+
+**A real crash, not just a failing assertion, caught during TDD:
+`ConfigParseException`'s constructor-promoted `$line`/`$column`
+properties fatally collided with PHP's own `Exception::$line`.** PHP's
+base `Exception` class already declares a non-readonly public `$line`
+(used by `getLine()`); redeclaring it as `readonly` via constructor
+property promotion is a *fatal* "cannot redeclare non-readonly property
+as readonly" compile-time error — one that, run through Pest's process
+wrapper, produced zero output and a bare exit code 1 with no visible
+stack trace at all (only reproduced by invoking the same code via a
+plain `php -r` one-liner, which printed the real fatal error). Every
+`YamlAdapterTest`/`JsonAdapterTest`/`TomlAdapterTest` case that exercised
+`validate()`'s catch path (malformed input, anchors, invalid UTF-8) was
+silently, uninformatively broken until this was found. Fixed by renaming
+the properties to `$parsedLine`/`$parsedColumn` (matching the naming
+Symfony Yaml's own `ParseException::getParsedLine()` and
+`yosymfony/toml`'s `ParseException::getParsedLine()` already use) — a
+useful, generalizable lesson: constructor-promoted exception properties
+must never reuse `Exception`'s own reserved names (`message`, `code`,
+`file`, `line`, `previous`).
+
+**YAML anchor/alias rejection is a raw-text pre-scan, not (only) the
+parser's own alias-handling flag.** `Symfony\Component\Yaml\Yaml::PARSE_EXCEPTION_ON_ALIAS`
+only throws when an alias (`*name`) is actually *dereferenced* — an
+anchor (`&name`) that is defined but never referenced would parse
+successfully with that flag alone, which would not satisfy the brief's
+"YAML anchors rejection" as a blanket policy. `YamlAdapter::
+assertNoAnchorsOrAliases()` instead scans every physical line (with
+quoted-string contents and comments blanked out first, so a literal `&`
+or `*` inside a quoted value is never a false positive) for an
+anchor/alias indicator character wherever the YAML grammar permits one —
+which is also spec-accurate, not just heuristic: a plain (unquoted) YAML
+scalar is syntactically forbidden from starting with `&`/`*` in the real
+grammar too, so anything this scan rejects a real YAML parser would
+already treat as an anchor/alias, never as literal content. The
+`PARSE_EXCEPTION_ON_ALIAS` flag is kept anyway as defense in depth on the
+underlying parse call.
+
+**JSON diagnostics: real line/column for two common malformed-JSON
+shapes (trailing comma, single-quoted keys), best-effort `(1, 1)` for
+everything else.** PHP's `json_decode()`/`JsonException` carry no
+position information at all (unlike Symfony Yaml and `yosymfony/toml`,
+both of which report a parsed line). Writing a fully spec-compliant
+JSON tokenizer purely to recover an error position was judged
+disproportionate to the value for a config-editing tool; instead,
+`JsonAdapter::locateError()` checks the raw source against two targeted
+regexes for the most common hand-edited-JSON mistakes and computes a
+real line/column from a regex match offset when one hits, falling back
+to `json_decode`'s own message at `(1, 1)` otherwise. `ParsedConfig::
+$nodes` for JSON is populated by a separate, tolerant, best-effort
+hand-rolled scanner (`App\Config\Formats\Support\JsonSourceScanner`) used
+only for read-only source-location display — never for writing, since
+`JsonAdapter::applyChanges()` always fully re-serializes.
+
+**`SchemaValidator` mismatches are always `Warning`, never `Error`.**
+A schema (`ConfigSchema`) describes CraftKeeper's own recognized,
+guided-editing surface — not a contract the underlying Minecraft server
+or plugin enforces. A value the schema doesn't expect (an unfamiliar
+`difficulty` string from a modded server, a `max-players` outside the
+range CraftKeeper considers typical) must never block viewing or editing
+a file; only a genuine syntax failure (caught earlier and separately, via
+each adapter's own `decode()`) makes a `ValidationResult` invalid.
+`SchemaValidator::validate()` is deliberately format-aware about how a
+field's dotted `path` maps onto decoded data: real nesting
+(`DotPath::has()`/`get()`) for YAML/JSON/TOML, one literal flat key for
+Properties (`server.properties` keys legitimately contain dots
+themselves, e.g. `rcon.port`, so treating every dot as nesting would be
+wrong for that one format).
+
+**Schema field values verified against current upstream documentation,
+not invented.** Every field in `resources/schemas/config/server-
+properties.json` was checked against the current Minecraft Wiki
+`Server.properties` page (confirmed real, including the legacy-but-
+still-live `enable-command-block`/`allow-nether`/`pvp` keys the wiki
+itself now describes as "replaced by game rules" only in a very recent
+snapshot build, not yet true for any released server version CraftKeeper
+targets); every `paper-global.json` path was checked against
+`docs.papermc.io/paper/reference/global-configuration/`; Geyser's
+`remote.address`/`remote.port`/`remote.auth-type` and Floodgate's
+`key-file-name` (default `key.pem`) were confirmed against GeyserMC's
+own wiki/GitHub config source rather than assumed from memory (an
+earlier candidate name, `java.*`, appeared in one secondary source but
+was not the real key and was discarded). `documentationUrl` values point
+at the plan's own listed authoritative sources
+(`minecraft.wiki`, `docs.papermc.io`, `geysermc.org/wiki`); Paper's
+config-reference anchors follow that site's own per-key anchor
+convention but were not individually re-verified byte-for-byte — a minor,
+disclosed gap that only affects a deep-link's exact scroll position, not
+which document opens.
