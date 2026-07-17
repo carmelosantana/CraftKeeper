@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Filesystem\LocalMinecraftFilesystem;
+use App\Filesystem\MinecraftFilesystem;
 use App\Operations\OperationHandlerRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -27,6 +29,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(OperationHandlerRegistry::class, fn ($app) => new OperationHandlerRegistry(
             $app->tagged('operation.handler'),
         ));
+
+        // The single, contained filesystem boundary beneath every read/
+        // write of the mounted Minecraft directory — see
+        // App\Filesystem\MinecraftPath's docblock for the containment
+        // guarantee this binding ultimately rests on.
+        $this->app->bind(MinecraftFilesystem::class, LocalMinecraftFilesystem::class);
     }
 
     /**

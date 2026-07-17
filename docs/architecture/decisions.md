@@ -646,3 +646,164 @@ approval/rejection — risk, redacted input, timestamps, outcome, error
 code, correlation id), plus `operation_steps`, `change_proposals`, and
 `audit_events` (append-only, `created_at` only — no `updated_at` column
 exists at all, not just blocked at the app layer).
+
+## Task 6 — Contained Minecraft Filesystem and Discovery
+
+**Containment algorithm — every existing path component is realpath()'d,
+non-existent trailing components are appended literally.**
+`App\Filesystem\MinecraftPath::fromUserInput()` rejects NUL bytes and
+absolute paths before touching the filesystem at all (PHP 8's filesystem
+functions throw a raw `ValueError` on an embedded NUL, so this must happen
+first), rejects any `..` segment outright (not merely "normalized away" —
+`plugins/../plugins/x.yml` is rejected, not collapsed to `plugins/x.yml`),
+and rejects reserved Windows device names in any segment. It then walks
+the cleaned, syntactically-safe segments one at a time, calling
+`realpath()` on the deepest existing ancestor at each step. `realpath()`
+resolves every symlink component it encounters (not just a trailing one),
+so a symlink anywhere along an *existing* prefix is fully dereferenced
+before the containment check (`$resolved === $root ||
+str_starts_with($resolved, $root.'/')`) runs. Once the walk reaches the
+first segment that doesn't exist yet, every remaining segment is appended
+literally — a path component that doesn't exist cannot itself be a
+symlink, so this is safe for the "write a brand-new file" case without
+needing the target to pre-exist. A symlink whose target resolves outside
+the canonical root fails the prefix check and the whole call throws
+`UnsafeMinecraftPath`, regardless of whether the escape happens at the
+leaf (`escape-link.yml -> ../outside-minecraft/secret.txt`) or a
+mid-path directory component (`escape-dir/secret.txt`, where `escape-dir
+-> ../outside-minecraft` — rejected on the very first segment, before
+`secret.txt` is even considered). A symlink whose target resolves *inside*
+the root (`inside-link.yml -> config/paper-global.yml`) is accepted, and
+the returned `MinecraftPath`'s `absolutePath` is the resolved *target*,
+not the symlink's own path — `relativePath` still preserves the caller's
+original request string, which is what downstream code (discovery,
+inventory listings) should display.
+
+**Disclosed TOCTOU residual risk — narrowed, not eliminated.** This is a
+check-then-use design, the only kind available to userland PHP on POSIX
+without `O_NOFOLLOW` + `openat2(RESOLVE_BENEATH)` (no PHP extension in
+this project's dependency graph exposes those). Between `fromUserInput()`
+resolving a path and the moment a file is actually opened, an actor with
+concurrent write access to the mounted `/minecraft` volume — outside
+CraftKeeper's own control, e.g. the Minecraft server process itself or a
+plugin — could in principle swap a directory component for a symlink and
+race the check. Every escape vector reachable through the actual attack
+surface (untrusted *input*: HTTP path params, REST/MCP tool arguments,
+AI-suggested paths) is fully closed by the algorithm above, since that
+input is canonicalized once, correctly, before any use. To narrow (not
+eliminate) the residual concurrent-mutation window,
+`MinecraftPath::reverifyContainment()` re-runs the same containment check
+against the already-resolved absolute path, and both
+`AtomicFileWriter::writeLocked()` and `LocalMinecraftFilesystem::read()`
+call it immediately before touching disk — proven by a dedicated test
+that swaps a file for an escaping symlink *after* `fromUserInput()`
+already ran and confirms `reverifyContainment()` still catches it. This
+was judged safe to decide without escalating (the brief's own "Global
+Constraints" — single Minecraft server, least-privilege bind, no Docker
+socket access — describe the same threat model every mainstream web
+framework's "safe path" helper accepts under, not a novel risk unique to
+this task) rather than a case needing a human round trip.
+
+**`writeAtomically()` does not snapshot — that composition is Task 8's
+job, by contract.** The plan's Stable Interface for `writeAtomically()`
+has no `$operationId` parameter, so it structurally cannot call
+`copyToSnapshot()` (which requires one) on the caller's behalf. Task 6's
+own brief Step 3 prose ("snapshot the old bytes... write and fsync...")
+describes the full system-level order across both primitives; per this
+task's own Context section, the orchestration (call `copyToSnapshot()`,
+*then* `writeAtomically()`) belongs to Task 8's `ConfigApplyHandler`.
+`AtomicFileWriter` and `SnapshotStore` are therefore two independent,
+separately-testable primitives with no dependency on each other —
+`LocalMinecraftFilesystem` composes both (plus `ConfigDiscoveryService`)
+behind the single `MinecraftFilesystem` interface, but nothing internally
+chains them.
+
+**Deterministic interruption tests via two protected syscall seams, not a
+process kill.** There is no portable, deterministic way to force a real
+partial write (a signal or crash mid-`fwrite()`) from a black-box PHP
+test. `AtomicFileWriter::fsyncHandle()` and `::renameFile()` are thin
+protected wrappers around the real `fsync()`/`rename()` calls, overridable
+by an anonymous subclass in tests. Every other step of the write path
+(temp-file creation, the real `fwrite()`, the real `fsync()` in the
+non-overridden path, mode/ownership preservation, and the cleanup-on-
+failure logic itself) still runs for real against the real filesystem —
+only the single OS primitive under test is swapped, so the assertion
+("original file byte-for-byte unchanged, temp file no longer present on
+disk") is exercising real code, not a mock of the thing being tested.
+
+**Lock files live under `{DATA_ROOT}/locks/`, never inside `/minecraft`.**
+The Global Constraints state "CraftKeeper state lives under `/data`;
+Minecraft files remain under `/minecraft`" — a per-path `flock()` lock
+file is CraftKeeper's own bookkeeping, not a Minecraft server file, so it
+would violate that boundary to create it next to the target inside the
+mounted volume. Lock files are named by `hash('sha256', $relativePath)`
+and are never deleted (cheap, and deleting a lock file while another
+process might still hold its `flock()` handle open is itself a race —
+leaving small, inert lock files in place is the standard, safe choice).
+
+**New-file writes are compared against `sha256('')`.** `writeAtomically()`
+has no "this is a create, not an update" flag in its contract, so a
+target that doesn't yet exist is treated as if its current content were
+the empty string for the optimistic-concurrency comparison — a caller
+proposing to *create* `plugins/NewPlugin/config.yml` passes
+`hash('sha256', '')` as `$expectedSha256`. V1's actual UI/API surface only
+lets an admin edit files Task 6's own discovery already found (existing
+files), so this convention is exercised by the code path but not
+expected to be reachable from the real product until/unless a later task
+adds a "create a new config file" flow.
+
+**`writeAtomically()` never auto-creates parent directories.** If
+`dirname($path->absolutePath)` doesn't exist, it throws
+`ParentDirectoryMissing` rather than `mkdir()`-ing a tree inside the
+customer's mounted Minecraft volume on the caller's behalf. In practice
+this is never a real limitation: every legitimate write target (an
+existing plugin's own config file, a root-level server file, a Paper
+config file) already has its parent directory, since it came from
+`ConfigDiscoveryService::discover()` in the first place.
+
+**Discovery ignore rules for `logs`/`playerdata`/`stats`/`advancements`/
+`world*` are scoped to the Minecraft root's top level only, not any
+depth.** An earlier draft of the ignore rule matched these names as a
+prefix/exact match at *any* depth, which would have silently excluded
+entirely legitimate, commonly-installed plugins whose folder names
+collide with these words — `plugins/WorldEdit/` (`world*` prefix) and
+`plugins/Stats/` (`stats` exact match) both being real, popular plugin
+names. Since these five directories are only ever meaningful as
+top-level Minecraft/Bukkit/Paper conventions (world saves and their
+`logs`/`playerdata`/`stats`/`advancements` subdirectories always live at
+or under the server root, never nested inside `plugins/`), restricting
+the rule to depth 0 closes the same real exclusions the brief asks for
+while eliminating the plugin-name false positive — regression-tested
+directly (`plugins/WorldEdit/config.yml` and `plugins/Statz/config.yml`
+fixtures are asserted present in the discovered inventory).
+
+**The binary-content sniff (a NUL byte in the first 8 KiB, the same
+heuristic `git` itself uses) is not "parsing contents."** The ambiguity
+resolution says discovery must classify "by path/extension CONVENTION"
+and never parse contents. `ConfigDiscoveryService` never interprets
+YAML/JSON/TOML/properties syntax — extension and path convention alone
+decide category/provenance/recognition. The binary sniff is a second,
+independent, format-agnostic safety net ("ignore binary files" is listed
+as its own exclusion criterion, separate from "unsupported extensions"):
+it reads raw bytes and checks for a single control byte, the same
+technique used to decide "is this diffable as text" across the industry,
+and is regression-tested against a file with a *recognized* `.yml`
+extension but corrupted/binary bytes inside it — proving the extension
+allowlist alone would not have caught that case.
+
+**Discovery is bounded by two real, tested limits (not just documented
+ones): `MAX_DEPTH = 10`, `MAX_FILES = 1000`.** The 1000-file cap is
+regression-tested directly by creating 1050 files in a temp root and
+asserting the returned inventory is capped at exactly 1000, not silently
+uncapped — this test is tagged `->group('slow')` since it does real I/O
+for 1000+ small files, but still runs as part of the required gate.
+
+**`config('craftkeeper.minecraft_root')`, not `env()`, everywhere outside
+`config/craftkeeper.php`.** Matches the same Larastan
+`noEnvCallsOutsideOfConfig` constraint Task 2 already documented for
+`data_root`. The new key's non-production default is
+`storage_path('craftkeeper/minecraft')` — deliberately *not*
+auto-vivified (unlike `data_root`, which `HealthController` self-heals):
+a missing/misconfigured Minecraft root should always surface as
+`MinecraftRootUnavailable`, never silently operate against a phantom
+directory CraftKeeper invented on its own.
