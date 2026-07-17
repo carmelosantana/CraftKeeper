@@ -18,6 +18,11 @@ Route::get('/up', HealthController::class)
 
 Route::inertia('/', 'welcome')->name('home');
 
+// Public: Task 3's design-system showcase must be reachable without login
+// (auth ships in Task 4) so the AppShell/token gallery can be reviewed and
+// exercised by e2e tests ahead of any real, authenticated feature page.
+Route::inertia('design-system', 'DesignSystem')->name('design-system');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 });
