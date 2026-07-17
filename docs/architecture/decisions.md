@@ -327,3 +327,164 @@ knowledge of vanilla/Paper defaults); `plugin` → `hangar` (plugin-sourced,
 reusing the plugin-marketplace hue). No new CSS variables were added for
 this — every value still resolves to one of the 8 tokens from
 `design-tokens.json`.
+
+## Task 4 — Single-Admin Onboarding, Login, TOTP, and Secrets
+
+**"Installed" is a query, not a flag:** `App\Support\InstallationState::isInstalled()`
+is exactly `User::query()->exists()` — no separate `installed` boolean in
+the database that could drift out of sync with reality (e.g. a flag left
+`true` after the one admin row was deleted some other way). Since
+CraftKeeper enforces exactly one user ever, "an admin exists" and
+"installed" are definitionally the same fact.
+
+**`registration` is disabled — the onboarding wizard is the only account-creation
+path, not a second one alongside it:** the brief's ambiguity resolution
+says to "repurpose the existing Fortify registration path into the
+first-run onboarding admin-creation." Rather than keep Fortify's own
+`/register` route (feature-flagged, mail-oriented, allows unlimited
+signups) running *alongside* a new `/onboarding/admin` route, `registration`
+was removed from `config/fortify.php`'s `features` array entirely, and
+`OnboardingController::storeAdmin()` re-uses the *same* validated creation
+path (`Laravel\Fortify\Contracts\CreatesNewUsers`, bound to the starter
+kit's existing `App\Actions\Fortify\CreateNewUser`) under a route gated by
+`RequireInstallation::class.':not-installed'` instead. This means public
+registration doesn't just "look" gone in the UI — the route itself never
+registers, so `POST /register` 404s unconditionally (not just after
+install), and `POST /onboarding/admin` 404s specifically once
+`InstallationState::isInstalled()` is true. `tests/Feature/Auth/RegistrationTest.php`
+(a starter-kit test asserting the old `/register` flow) is left in place
+but skips itself via the existing `skipUnlessFortifyHas(Features::registration())`
+guard — consistent with how the starter kit already handles optional
+Fortify features, and it stays meaningful documentation if registration is
+ever intentionally re-enabled.
+
+**`emailVerification` and `passkeys` are disabled — not just inert, actually
+removed:** the brief's ambiguity resolution allows disabling these "if [they]
+complicate the single-admin flow… but do NOT add new un-specced auth
+features." CraftKeeper V1 has no mail server (`MAIL_MAILER=log`), so
+requiring email verification could never be satisfied by the one
+self-hosted admin; passkeys (WebAuthn) aren't part of the plan's specified
+auth surface ("local username/password + optional TOTP"). Both were
+removed from `config/fortify.php`'s `features` array, which means Fortify
+never registers their routes (`/register`... er, `/email/verify/*`,
+`/passkeys/*`, `.well-known/passkey-endpoints`) at all. Removing the
+*feature flag* (rather than leaving it on and just hoping the one admin
+never gets stuck) turned out to be load-bearing, not cosmetic: it cascaded
+into removing now-genuinely-unreachable frontend code that referenced
+those routes —
+`resources/js/pages/auth/register.tsx`, `resources/js/pages/auth/verify-email.tsx`,
+`resources/js/components/manage-passkeys.tsx`, `passkey-register.tsx`,
+`passkey-item.tsx`, `passkey-verify.tsx`, the `Passkey` type in
+`resources/js/types/auth.ts`, the unverified-email prompt in
+`resources/js/pages/settings/profile.tsx` (and the now-unused
+`mustVerifyEmail` prop `App\Http\Controllers\Settings\ProfileController::edit()`
+computed for it), the "Register" link on `resources/js/pages/welcome.tsx`,
+and the `.well-known/passkey-endpoints` discovery route in
+`routes/settings.php`. This was discovered empirically: `@laravel/vite-plugin-wayfinder`
+regenerates `resources/js/routes/*`/`resources/js/actions/*` from
+*currently-registered* Laravel routes, so once the Fortify features were
+turned off, those generated files for the now-unregistered routes were
+correctly deleted by Wayfinder itself — and the remaining pages/components
+that still statically imported from those paths broke `npm run typecheck`
+/ `npm run build` immediately, which is exactly the signal that caught
+every one of these call sites (nothing here was found by manual
+inspection alone). `User` never implemented the `MustVerifyEmail`
+*contract* to begin with (only commented out in the starter kit), so the
+`verified` middleware was already inert before this task; it was removed
+from the `dashboard` route in `routes/web.php` regardless, so the route's
+middleware list doesn't imply a check that can't actually block anything.
+The onboarding-created admin is also explicitly marked
+`email_verified_at = now()` at creation time as a second, belt-and-suspenders
+guarantee against ever locking the operator out, independent of the
+feature flag. `tests/Feature/Settings/SecurityTest.php::test_security_page_is_displayed`
+(a starter-kit test) was updated to assert `canManagePasskeys: false`
+instead of re-enabling passkeys mid-test, since `Features::passkeys([...])`
+only sets *options* — it can't re-enable a feature that isn't in the base
+`config('fortify.features')` array, and the base array is now the single
+source of truth for what's on. `tests/Feature/Auth/EmailVerificationTest.php`
+and `VerificationNotificationTest.php` are, like `RegistrationTest.php`,
+left in place and self-skipping.
+
+**Naming: `settings/security.tsx` and `auth/login.tsx`, not `Security.tsx`/
+`Login.tsx`:** the task brief's file list names `resources/js/pages/settings/Security.tsx`
+and `resources/js/pages/auth/Login.tsx`, but both already exist, lowercase,
+from the starter kit (`security.tsx`, `login.tsx`) and are already fully
+wired into `routes/settings.php`/Fortify's view registrations. Linux's
+filesystem is case-sensitive, so creating `Security.tsx`/`Login.tsx`
+alongside the existing lowercase files would silently produce two
+different files that both plausibly look like "the" security/login page —
+a footgun, not a fresh page. Both were adapted in place instead: `security.tsx`
+already shipped full TOTP enable/disable/recovery-codes UI
+(`ManageTwoFactor`, `TwoFactorRecoveryCodes`, `TwoFactorSetupModal`) from
+the starter kit, so Task 4 mostly *subtracted* from it (removed passkey
+management) rather than adding TOTP UI that already existed; `login.tsx`
+had the passkey sign-in option and the "Sign up" link removed, since
+neither passkeys nor public registration exist anymore.
+
+**Secrets — encrypted cast, `#[Hidden]`, and non-colliding method names:**
+`App\Models\Secret::value` uses Laravel's `encrypted` cast (ciphertext at
+rest, transparent decrypt-on-read as a PHP attribute) and is declared
+`#[Hidden(['value'])]`, so it's stripped from every `toArray()`/`toJson()`
+call regardless of whether a call site remembers to `->makeHidden(...)` it
+— verified directly (`tests/Feature/Auth/OnboardingTest.php`: a `Secret`
+model's `toArray()` doesn't have a `value` key, `json_encode()` of it
+doesn't contain the plaintext, the raw `secrets.value` database column
+isn't the plaintext either, and `OnboardingController`'s RCON/AI Inertia
+props only ever expose a `…Configured: bool`, never the secret). One
+non-obvious Larastan (PHPStan) finding along the way: an initial
+`Secret::has(string $key): bool` helper method was renamed to
+`Secret::configured()` because naming a custom static method `has()` (or
+`exists()`) collides by *name* with Eloquent's own relation-existence
+query methods (`Model::has('relation.path')`) — Larastan's
+`relationExistence` rule pattern-matches on the method name alone and
+mis-parsed `Secret::has('rcon.password')` as a dotted relation path
+lookup on a nonexistent `rcon` relation, not as a call to the app's own
+method. `App\Models\Setting` is the equivalent plain-text key/value store
+for non-sensitive values (Minecraft directory, RCON host/port, AI
+provider name, analytics opt-in).
+
+**Login rate limiting — normalized (trim + lowercase) email, not raw
+input:** the starter kit's `FortifyServiceProvider` already throttled
+login to 5/minute per email+IP (matching Fortify's documented default),
+but built the throttle key from the raw, unnormalized submitted email.
+`app/Providers/FortifyServiceProvider.php`'s `login` `RateLimiter` now
+lowercases and trims the email before it becomes part of the key, so
+`" Admin@Example.com "` and `"admin@example.com"` share one bucket instead
+of an attacker getting a fresh 5-attempt allowance per whitespace/case
+variant of the same account — covered by
+`AuthenticationTest::test_users_are_rate_limited_regardless_of_email_case_or_surrounding_whitespace`.
+
+**Onboarding is genuinely mocked past admin creation, and every step after
+it is skippable:** the brief specifies Welcome → admin account → Minecraft
+directory check → RCON setup/test → optional AI provider → optional
+analytics → completion, with the RCON test/AI/analytics as UI placeholders
+(real wiring is Tasks 10/16/19). `OnboardingController`'s
+server/rcon/ai/analytics steps persist whatever is entered
+(`Setting`/`Secret`) but perform no live filesystem/RCON/AI/analytics
+call, and every one of those four steps has a plain `<Link>` "Skip for
+now" straight to the next step's URL — no server round trip, no
+validation to bypass. Only the admin-account step is mandatory (there's
+nothing to onboard into without one). The RCON step's instructions
+explicitly cover `enable-rcon=true` in `server.properties`, choosing a
+long/unique `rcon.password`, and keeping the RCON port firewalled/private
+— per the brief's explicit requirement — as static copy, not a live check.
+
+**e2e: real TOTP codes, not a stub — and a fresh database per run:**
+`tests/e2e/onboarding.spec.ts` drives the full flow in real Chromium:
+onboarding is reachable pre-login, `/onboarding` 404s once the admin
+exists, login works, 2FA is *enabled* by reading the manual setup key the
+enrollment modal shows and computing a real 6-digit code from it
+(`tests/e2e/support/totp.ts`, a ~60-line RFC 4226/6238 HOTP/TOTP
+implementation using only Node's built-in `crypto` — no new npm
+dependency), and a captured recovery code is used to log back in after
+simulating a fresh session. Getting this to run *repeatably* required two
+`playwright.config.ts` changes: `use.testIdAttribute` is now `'data-test'`
+(the app's existing convention throughout `resources/js/pages`, e.g.
+`data-test="login-button"` — not Playwright's `data-testid` default, which
+would have silently matched nothing), and the `webServer.command` now runs
+`php artisan migrate:fresh --force` before `serve`. That second change
+matters because, unlike Task 3's stateless design-system e2e run, these
+specs are stateful against `InstallationState` — they create the
+one-and-only admin — so every fresh server boot needs to start from zero
+users or a second run would find the app already "installed" and the
+first test would fail at the very first assertion.

@@ -46,4 +46,48 @@ class TwoFactorChallengeTest extends TestCase
                 ->component('auth/two-factor-challenge'),
             );
     }
+
+    /**
+     * Task 4: TOTP recovery works end to end — logging in with a valid
+     * recovery code (instead of a TOTP code) signs the user in, and that
+     * code is single-use (replaced) so it can't be reused.
+     */
+    public function test_user_can_log_in_with_a_two_factor_recovery_code(): void
+    {
+        Features::twoFactorAuthentication([
+            'confirm' => true,
+            'confirmPassword' => true,
+        ]);
+
+        $user = User::factory()->withTwoFactor()->create();
+
+        $this->post(route('login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ])->assertRedirect(route('two-factor.login'));
+
+        $this->assertGuest();
+
+        $this->post(route('two-factor.login.store'), [
+            'recovery_code' => 'recovery-code-1',
+        ])->assertRedirect(route('dashboard', absolute: false));
+
+        $this->assertAuthenticatedAs($user);
+
+        // The used recovery code must be replaced (single use) — trying it
+        // again after logging out must fail.
+        $this->post(route('logout'));
+        $this->assertGuest();
+
+        $this->post(route('login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $this->post(route('two-factor.login.store'), [
+            'recovery_code' => 'recovery-code-1',
+        ]);
+
+        $this->assertGuest();
+    }
 }

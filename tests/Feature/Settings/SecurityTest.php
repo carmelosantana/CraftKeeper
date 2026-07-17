@@ -21,9 +21,6 @@ class SecurityTest extends TestCase
             'confirm' => true,
             'confirmPassword' => true,
         ]);
-        Features::passkeys([
-            'confirmPassword' => true,
-        ]);
 
         $user = User::factory()->create();
 
@@ -32,7 +29,10 @@ class SecurityTest extends TestCase
             ->get(route('security.edit'))
             ->assertInertia(fn (Assert $page) => $page
                 ->component('settings/security')
-                ->where('canManagePasskeys', true)
+                // Task 4: passkeys are disabled app-wide (single-admin,
+                // no onboarding path to register one) — see
+                // config/fortify.php and docs/architecture/decisions.md.
+                ->where('canManagePasskeys', false)
                 ->where('passkeys', [])
                 ->where('canManageTwoFactor', true)
                 ->where('twoFactorEnabled', false),

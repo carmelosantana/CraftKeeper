@@ -25,6 +25,10 @@ export default defineConfig({
     use: {
         baseURL: process.env.APP_URL ?? `http://${HOST}:${PORT}`,
         trace: 'on-first-retry',
+        // The app already uses `data-test="..."` (not the Playwright
+        // default `data-testid`) as its test-hook convention throughout
+        // resources/js/pages — see e.g. login.tsx's `data-test="login-button"`.
+        testIdAttribute: 'data-test',
     },
     projects: [
         {
@@ -37,8 +41,16 @@ export default defineConfig({
     // exercises the exact assets `npm run build` produces. Reuses an
     // already-running server locally (e.g. one left over from manual
     // testing); CI always boots a fresh one.
+    //
+    // Task 4: `migrate:fresh` resets the (real, file-backed) local sqlite
+    // database before every fresh server boot. The onboarding/login/2FA
+    // specs are stateful against real InstallationState — they create the
+    // one-and-only admin account and depend on starting from zero users,
+    // so each fresh run needs a clean slate. `reuseExistingServer` above
+    // means this only runs when no server is already listening on the
+    // port; a manually-left-running `artisan serve` is reused as-is.
     webServer: {
-        command: `npm run build && php artisan serve --host=${HOST} --port=${PORT}`,
+        command: `php artisan migrate:fresh --force && npm run build && php artisan serve --host=${HOST} --port=${PORT}`,
         url: `http://${HOST}:${PORT}/up`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,

@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Laravel\Fortify\Features;
 use Tests\TestCase;
 
@@ -84,6 +85,29 @@ class AuthenticationTest extends TestCase
 
         $response = $this->post(route('login.store'), [
             'email' => $user->email,
+            'password' => 'wrong-password',
+        ]);
+
+        $response->assertTooManyRequests();
+    }
+
+    /**
+     * Task 4: the login limiter throttles on the *normalized* (trimmed,
+     * lowercased) email + IP, so " Admin@Example.com " and
+     * "admin@example.com" share one 5-attempts-per-minute bucket instead
+     * of an attacker getting a fresh bucket per whitespace/case variant.
+     */
+    public function test_users_are_rate_limited_regardless_of_email_case_or_surrounding_whitespace()
+    {
+        $user = User::factory()->create();
+
+        RateLimiter::increment(
+            md5('login'.implode('|', [Str::lower(trim($user->email)), '127.0.0.1'])),
+            amount: 5,
+        );
+
+        $response = $this->post(route('login.store'), [
+            'email' => '  '.Str::upper($user->email).'  ',
             'password' => 'wrong-password',
         ]);
 

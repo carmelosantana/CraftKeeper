@@ -158,19 +158,29 @@ return [
     | by removing them from this array. You're free to only remove some of
     | these features, or you can even remove all of these if you need to.
     |
+    | CraftKeeper V1 is a single-admin, self-hosted app with no mail server
+    | (see docs/architecture/decisions.md, Task 4):
+    |
+    |  - `registration` is disabled. Public self-registration would allow a
+    |    second admin; the only way to create the (single) admin account is
+    |    the first-run onboarding wizard at `/onboarding`, which is gated on
+    |    installation state, not on this feature.
+    |  - `emailVerification` is disabled. A self-hosted single admin has no
+    |    mail server to receive a verification link on, so requiring one
+    |    would permanently lock them out of their own install.
+    |  - `passkeys` is disabled. Not part of the V1 auth surface (local
+    |    username/password + optional TOTP); leaving it enabled with no
+    |    onboarding path to register a passkey would just be a dead,
+    |    unreachable feature.
+    |
     */
 
     'features' => [
-        Features::registration(),
         Features::resetPasswords(),
-        Features::emailVerification(),
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,
             // 'window' => 0
-        ]),
-        Features::passkeys([
-            'confirmPassword' => true,
         ]),
     ],
 

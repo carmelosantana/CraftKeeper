@@ -45,6 +45,14 @@ class FortifyServiceProvider extends ServiceProvider
 
     /**
      * Configure Fortify views.
+     *
+     * No `registerView`/`verifyEmailView`: `registration` and
+     * `emailVerification` are disabled in config/fortify.php (see Task 4 in
+     * docs/architecture/decisions.md), so Fortify never registers routes
+     * for them and these closures would never be invoked — registering
+     * them anyway would just be dead code pointing at page components that
+     * no longer exist (`auth/register`, `auth/verify-email` were removed
+     * along with the routes).
      */
     private function configureViews(): void
     {
@@ -63,14 +71,6 @@ class FortifyServiceProvider extends ServiceProvider
             'status' => $request->session()->get('status'),
         ]));
 
-        Fortify::verifyEmailView(fn (Request $request) => Inertia::render('auth/verify-email', [
-            'status' => $request->session()->get('status'),
-        ]));
-
-        Fortify::registerView(fn () => Inertia::render('auth/register', [
-            'passwordRules' => Password::defaults()->toPasswordRulesString(),
-        ]));
-
         Fortify::twoFactorChallengeView(fn () => Inertia::render('auth/two-factor-challenge'));
 
         Fortify::confirmPasswordView(fn () => Inertia::render('auth/confirm-password'));
@@ -86,7 +86,14 @@ class FortifyServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+            // Normalize (trim + lowercase) the submitted email before it
+            // becomes part of the throttle key, so " Admin@Example.com "
+            // and "admin@example.com" share the same 5-attempts-per-minute
+            // bucket instead of an attacker getting a fresh bucket per
+            // whitespace/case variant of the same account.
+            $normalizedEmail = Str::lower(trim((string) $request->input(Fortify::username())));
+
+            $throttleKey = Str::transliterate($normalizedEmail.'|'.$request->ip());
 
             return Limit::perMinute(5)->by($throttleKey);
         });
