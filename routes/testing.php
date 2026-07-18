@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\E2eMcpBootstrapController;
 use App\Http\Controllers\E2ePluginFixtureController;
 use App\Http\Controllers\E2eResetController;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -70,4 +71,20 @@ if (E2eResetController::allowed()) {
             ShareErrorsFromSession::class,
         ])
         ->name('e2e.fixtures.plugin');
+
+    // Task 20: mints a real MCP OAuth client-credentials client + grant
+    // for docker-compose.integration.yml's "tests" service — see
+    // App\Http\Controllers\E2eMcpBootstrapController's own docblock for
+    // why (a non-browser test runner cannot drive the real
+    // authorization-code + PKCE consent flow every production MCP client
+    // uses) and for the identical production-safety guard this route
+    // shares with e2e.reset above.
+    Route::post('__e2e__/mcp-bootstrap', E2eMcpBootstrapController::class)
+        ->withoutMiddleware([
+            StartSession::class,
+            EncryptCookies::class,
+            PreventRequestForgery::class,
+            ShareErrorsFromSession::class,
+        ])
+        ->name('e2e.mcp-bootstrap');
 }

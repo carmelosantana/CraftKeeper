@@ -27,7 +27,15 @@ const NEUTRAL_TOKENS = [
 const TEXT_TOKENS = [
     ['text', '--ck-text', '15.8:1'],
     ['text-2', '--ck-text-2', '7.2:1'],
-    ['text-3', '--ck-text-3', '4.6:1'],
+    // Task 20: was documented as "4.6:1" (measured against --ck-bg), but
+    // that claim was itself never actually verified — computed by hand
+    // it was only ~4.39:1 against --ck-bg and dropped as low as ~3.5:1
+    // against --ck-surface/--ck-elevated (below the 4.5:1 AA floor for
+    // normal text). The token itself was fixed at the source
+    // (resources/css/app.css) rather than patched around here; "4.5:1"
+    // below is the new worst case across every surface this token is
+    // used on (--ck-elevated, dark theme).
+    ['text-3', '--ck-text-3', '4.5:1'],
 ] as const;
 
 const SEMANTIC_TOKENS = [
@@ -335,36 +343,24 @@ function DesignSystemContent() {
                             <ColorSwatch name="accent" varName="--ck-accent" />
                         </div>
                         <Card className="grid gap-[10px]">
-                            {/* text-3's documented ~4.6:1 ratio is
-                                measured against --ck-bg, the page
-                                background — it drops below AA on this
-                                card's --ck-surface, so its swatch is
-                                shown as a color chip rather than as
-                                same-colored body text (text/text-2 both
-                                still hold AA on --ck-surface and render
-                                as real text below). */}
+                            {/* Task 20: text-3 previously failed AA
+                                against this card's --ck-surface (~3.5-
+                                4.1:1), so its row rendered as --ck-text-2
+                                plus a separate color swatch instead of
+                                real same-colored text. The token was
+                                fixed at the source (resources/css/
+                                app.css) — text-3 now clears 4.5:1 against
+                                every surface it is used on, so every row
+                                below (including this one) renders in its
+                                own real color like the other two. */}
                             {TEXT_TOKENS.map(([name, varName, ratio]) => (
                                 <div
                                     key={name}
                                     className="flex items-center gap-[10px]"
                                 >
-                                    {name === 'text-3' && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="size-[12px] flex-none rounded-[3px]"
-                                            style={{
-                                                backgroundColor: `var(${varName})`,
-                                            }}
-                                        />
-                                    )}
                                     <span
                                         className="text-[14px] font-semibold"
-                                        style={{
-                                            color:
-                                                name === 'text-3'
-                                                    ? 'var(--ck-text-2)'
-                                                    : `var(${varName})`,
-                                        }}
+                                        style={{ color: `var(${varName})` }}
                                     >
                                         {name} — {ratio}
                                     </span>{' '}
@@ -623,13 +619,16 @@ function DesignSystemContent() {
                                         backgroundColor: 'var(--ck-elevated)',
                                         borderColor: 'var(--ck-border)',
                                         boxShadow: `var(--ck-shadow-${level})`,
-                                        // --ck-text-3's ~4.6:1 contrast
-                                        // ratio is validated against
-                                        // --ck-surface in design-tokens.json,
-                                        // not --ck-elevated — it falls to
-                                        // ~3.5:1 here, so use --ck-text-2
-                                        // (~7:1) on this background instead.
-                                        color: 'var(--ck-text-2)',
+                                        // Task 20: previously forced to
+                                        // --ck-text-2 because --ck-text-3
+                                        // fell to ~3.5:1 against
+                                        // --ck-elevated (below AA). The
+                                        // token was fixed at the source
+                                        // (resources/css/app.css) — it now
+                                        // clears 4.5:1 here too, so this
+                                        // label uses its originally
+                                        // intended tertiary color again.
+                                        color: 'var(--ck-text-3)',
                                     }}
                                 >
                                     --ck-shadow-{level}

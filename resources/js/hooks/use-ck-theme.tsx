@@ -94,3 +94,76 @@ export function useCkTheme(): CkThemeContextValue {
 
     return context;
 }
+
+const readDocumentCkTheme = (): CkThemeName => {
+    if (typeof document === 'undefined') {
+        return 'dark';
+    }
+
+    // Mirrors resources/css/app.css's own fallback: `:root, [data-theme='dark']`
+    // is the dark-theme selector, so anything other than the literal
+    // string 'light' resolves to dark — including the attribute being
+    // absent entirely (e.g. a layout that never renders AppShell/
+    // CkThemeProvider at all).
+    return document.documentElement.getAttribute('data-theme') === 'light'
+        ? 'light'
+        : 'dark';
+};
+
+/**
+ * Resolves the active CraftKeeper design-system theme by reading the
+ * `data-theme` attribute directly off `<html>`, rather than through
+ * `useCkTheme()`'s React context.
+ *
+ * Task 20: this exists because the app-root `<Toaster />` (resources/js/
+ * app.tsx) is mounted as a SIBLING of the page tree in `withApp`, not a
+ * descendant of whichever page's AppShell renders `CkThemeProvider` — so
+ * it cannot call `useCkTheme()` at all (no context to read; every page
+ * mounts/unmounts its own provider instance). Before this hook existed,
+ * `resources/js/components/ui/sonner.tsx` passed Sonner's `theme` prop
+ * from `useAppearance()` instead — the OLDER, UNRELATED starter-kit
+ * light/dark/system toggle (`resources/js/hooks/use-appearance.tsx`),
+ * which has nothing to do with the CraftKeeper theme picker and can (and
+ * in practice does) disagree with it. Sonner keys several of its OWN
+ * hardcoded sub-element colors (`[data-description]`, `[data-cancel]`,
+ * dark-mode `[data-close-button]`) off its internal `data-sonner-theme`
+ * attribute, while this app overrides the toast's own background/text
+ * via `--normal-bg`/`--normal-text` (see sonner.tsx) to track the
+ * CraftKeeper theme instead. When the two disagreed, Sonner's hardcoded
+ * description color (chosen to read against ITS OWN theme's background)
+ * ended up painted on top of OUR (differently-themed) background —
+ * measured as low as ~1.2:1 in the reproduced mismatch, comfortably
+ * explaining the ~1.88:1 axe violation flagged in Task 19's e2e run
+ * (`li[data-sonner-toast]`, description text). Reading `data-theme`
+ * directly (the same attribute `CkThemeProvider` duplicates onto
+ * `<html>` specifically so portaled/provider-less content can react to
+ * it — see that provider's own docblock) keeps Sonner's internal theme
+ * flag permanently in lockstep with the CraftKeeper theme that actually
+ * drives the toast's background, eliminating the mismatch at its root
+ * rather than patching one color pair. See docs/architecture/
+ * decisions.md (Task 20) for the full before/after contrast numbers.
+ */
+export function useCkResolvedThemeFromDocument(): CkThemeName {
+    const [theme, setTheme] = useState<CkThemeName>(readDocumentCkTheme);
+
+    useEffect(() => {
+        if (typeof document === 'undefined') {
+            return;
+        }
+
+        const root = document.documentElement;
+        const sync = () => setTheme(readDocumentCkTheme());
+
+        sync();
+
+        const observer = new MutationObserver(sync);
+        observer.observe(root, {
+            attributes: true,
+            attributeFilter: ['data-theme'],
+        });
+
+        return () => observer.disconnect();
+    }, []);
+
+    return theme;
+}

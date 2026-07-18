@@ -162,11 +162,24 @@
     --ck-border-strong: #4a443c;
     --ck-text: #ece7dd;
     --ck-text-2: #b7afa2;
-    --ck-text-3: #877f72;
+    /* Task 20: was #877f72 (~3.5-4.1:1 against --ck-surface/--ck-elevated,
+       under the 4.5:1 AA floor for normal text — see
+       docs/architecture/decisions.md). Lightened along the same hue/
+       saturation to #999286, which clears 4.5:1 against BOTH surfaces
+       this token is used on (4.54:1 vs elevated, 5.26:1 vs surface) while
+       staying visibly the dimmest of the three text tiers
+       (text > text-2 > text-3). */
+    --ck-text-3: #999286;
 
     --ck-success: #6db67f;
     --ck-warning: #d9a441;
     --ck-danger: #d97a67;
+    /* Task 20: dedicated dark-on-danger foreground (mirrors --ck-accent-fg's
+       per-theme pairing) so text painted directly on a solid --ck-danger
+       fill (the destructive Button) gets a token-verified AA-safe color
+       instead of a hardcoded white that measures only ~3.03:1 against this
+       theme's lighter coral danger hue. 5.95:1 against --ck-danger. */
+    --ck-danger-fg: #1c1512;
     --ck-info: #6fa3d1;
 
     --ck-accent: #cf6c40;
@@ -188,11 +201,20 @@
     --ck-border-strong: #cabfa9;
     --ck-text: #2b2620;
     --ck-text-2: #5f584c;
-    --ck-text-3: #8a8174;
+    /* Task 20: was #8a8174 (~3.6-3.8:1 against --ck-surface/--ck-elevated,
+       under the 4.5:1 AA floor). Darkened along the same hue/saturation to
+       #787065 — 4.56:1 vs surface, 4.88:1 vs elevated. See
+       docs/architecture/decisions.md. */
+    --ck-text-3: #787065;
 
     --ck-success: #3f8b57;
     --ck-warning: #9a6c26;
     --ck-danger: #b04d3c;
+    /* Task 20: this theme's danger hue is already dark enough that white
+       text passes AA (5.29:1) — kept as white so light-theme buttons are
+       visually unchanged; see the dark-theme block above for why a
+       dedicated value is needed there. */
+    --ck-danger-fg: #ffffff;
     --ck-info: #3a6ea5;
 
     --ck-accent: #b4552d;
@@ -433,7 +455,14 @@
     --accent: var(--ck-surface-2);
     --accent-foreground: var(--ck-text);
     --destructive: var(--ck-danger);
-    --destructive-foreground: #ffffff;
+    /* Task 20: was a hardcoded #ffffff regardless of theme — measured
+       ~3.03:1 against this theme's --ck-danger fill (dark theme's coral is
+       too light for white text). Now theme-aware via --ck-danger-fg (see
+       above), and resources/js/components/ui/button.tsx's destructive
+       variant was switched from a hardcoded `text-white` Tailwind class to
+       `text-destructive-foreground` so it actually consumes this token
+       instead of bypassing it. */
+    --destructive-foreground: var(--ck-danger-fg);
     --border: var(--ck-border);
     --input: var(--ck-border-strong);
     --ring: var(--ck-accent);

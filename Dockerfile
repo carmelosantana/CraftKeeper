@@ -125,6 +125,13 @@ COPY docker/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Task 20: upload/body-size (and memory_limit) overrides — see that
+# file's own comments for why this is required at all (no php.ini of any
+# kind was copied into this image before now, leaving PHP's tiny
+# compiled-in defaults in place) and why its values are kept in lockstep
+# with docker/nginx/default.conf's client_max_body_size.
+COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/zz-craftkeeper-uploads.ini
+
 # PHP-FPM pool: run as the non-root user and listen on the loopback TCP
 # port Nginx proxies fastcgi requests to.
 RUN { \

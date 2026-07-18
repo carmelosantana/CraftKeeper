@@ -3835,3 +3835,420 @@ analytics,backups,advanced}.tsx` bundle and code-split correctly).
 `npm run e2e -- --grep "integrations|settings|backup"` (5 tests, all
 passing, axe-clean) and the full e2e suite (46 tests, all passing — 41
 pre-existing plus these 5, no regressions).
+
+## Task 20 — Security, Accessibility, Performance, and End-to-End Matrix
+
+**Contrast: fixed at the token source, not patched per-component again.**
+Four AA failures had each accumulated their own workaround across Tasks
+3/9/12/19 instead of a fix at the source. All four are now fixed where
+the color math actually lives, verified by hand-computed WCAG 2.2
+contrast ratios (not by trusting `Design/handoff/design-tokens.json`'s
+own claims, which were themselves wrong in more than one place — see
+below):
+
+- **`--ck-text-3`** (`resources/css/app.css`): dark `#877f72` → `#999286`
+  (4.10:1 → **5.26:1** vs `--ck-surface`, 3.54:1 → **4.54:1** vs
+  `--ck-elevated`); light `#8a8174` → `#787065` (3.59:1 → **4.56:1** vs
+  surface, 3.84:1 → **4.88:1** vs elevated). The handoff doc's own claim
+  ("~4.6:1") was itself never verified — computed by hand it was only
+  ~4.39:1 against `--ck-bg` (the ONE surface it was ever measured
+  against) and as low as ~3.5:1 against the surfaces it's actually
+  rendered on. `resources/js/pages/DesignSystem.tsx`'s color-token
+  gallery previously worked around this by rendering the text-3 SWATCH
+  row in `--ck-text-2` instead of its own color, and forced the
+  elevation-card labels to `--ck-text-2` too — both reverted to their
+  real token now that it passes AA everywhere it's used.
+- **`StatusBadge` "danger" chip** (`resources/js/lib/ck-tokens.ts`
+  `ckChipStyle()`): the shared "badge fills ~15%" tint formula measured
+  ~4.26:1 (dark) / ~4.05:1 (light) for the danger tone against
+  `--ck-surface` — a HIGHER tint paradoxically REDUCES contrast against
+  same-colored text (it moves the background toward the text's own
+  color), so the fix is a lower tint: 15% → 5%, verified **5.02:1**
+  (dark) / **4.61:1** (light) against `--ck-surface` — every other tone
+  (success/warning/info) had more margin than danger did at 15%, so this
+  is a strict improvement across the board, not a trade-off. Residual,
+  disclosed, NOT required by this task's explicit scope: at 5% the dark
+  danger chip against `--ck-elevated` specifically measures **4.31:1** —
+  still marginally under AA. `StatusBadge` in this app is only ever
+  rendered on `--ck-surface`-based cards in practice (never a popover/
+  `--ck-elevated` surface), so this is a theoretical residual, not a live
+  violation, and is out of the four named pairs this task was scoped to
+  fix; `StatusText` (a chip-free fallback) remains available if a future
+  call site needs it on `--ck-elevated`.
+- **Destructive `Button`** (`resources/js/components/ui/button.tsx`):
+  hardcoded `text-white` measured **3.03:1** in dark theme (`--ck-danger`
+  there is a lighter coral); fixed by introducing `--ck-danger-fg` (a
+  dedicated per-theme foreground token mirroring the existing
+  `--ck-accent-fg` pattern — dark `#1c1512`, light `#ffffff`,
+  `resources/css/app.css`), wiring `--destructive-foreground` to it, and
+  switching the Button (and, for consistency, the currently-unused
+  `Badge` destructive variant) from `text-white` to
+  `text-destructive-foreground` so it actually consumes the token.
+  **5.95:1** dark, **5.29:1** light (unchanged — white already passed
+  there).
+- **Sonner toast** (`li[data-sonner-toast]`, ~1.88:1 per Task 19's axe
+  run): NOT a bad color pair — a THEME-WIRING BUG. Reproduced by hand:
+  Sonner's `theme` prop was wired to `useAppearance()`, the OLDER,
+  UNRELATED starter-kit light/dark/system toggle
+  (`resources/js/hooks/use-appearance.tsx`), which has nothing to do
+  with the CraftKeeper design-system theme picker and can (and does)
+  disagree with it. Sonner keys several of its OWN hardcoded colors
+  (`[data-description]`, dark-mode `[data-close-button]`) off its
+  internal `data-sonner-theme` attribute, while this app's own
+  `--normal-bg`/`--normal-text` override (matching the CraftKeeper
+  theme) governs the toast's base background — when the two theme axes
+  disagreed, Sonner's hardcoded description color (chosen for ITS OWN
+  theme's background) ended up painted on the WRONG (CraftKeeper-
+  themed) background. Reproduced via the browser (forcing a CraftKeeper-
+  theme flip while the starter-kit appearance stayed put) and measured
+  as low as **1.22:1** — comfortably explaining Task 19's ~1.88:1.
+  Fixed by adding `useCkResolvedThemeFromDocument()`
+  (`resources/js/hooks/use-ck-theme.tsx`) — reads `data-theme` directly
+  off `<html>` (the same attribute `CkThemeProvider` already duplicates
+  there for portaled content) rather than through `useCkTheme()`'s React
+  context, since the app-root `<Toaster />` (`resources/js/app.tsx`) is
+  a SIBLING of the page tree in Inertia's `withApp`, not a descendant of
+  any page's `CkThemeProvider` — and wiring `resources/js/components/ui/
+  sonner.tsx`'s `theme` prop to it instead of `useAppearance()`. Verified
+  **11.43:1** (dark, matched) / **10.53:1** (light, matched) after the
+  fix, in both directions.
+- **Guard added**: `tests/e2e/design-system.spec.ts` gained two new
+  tests. "token contrast" reads the real `--ck-*` custom properties off
+  the live page and computes WCAG contrast in-browser for both themes —
+  a regression in any of these four pairs now fails the suite instead of
+  silently shipping. The Sonner test reproduces the exact theme-flip bug
+  above (flips the CraftKeeper theme mid-test, fires a real toast with a
+  description via the command palette's "Restart server…" review flow)
+  and additionally runs the axe scan WITH that toast visible — Task 19's
+  own spec deliberately scanned axe BEFORE ever triggering a toast, which
+  is why it never caught this at the axe level.
+
+**CSP: per-request nonce, verified NOT to break Inertia/Vite/Reverb by
+actually running the app with it on.** `App\Http\Middleware\
+ContentSecurityPolicy` (new, `web` group only) issues a fresh
+`random_bytes(16)`-based nonce every request, shared into every
+rendered view (`View::share('cspNonce', ...)`) so
+`resources/views/app.blade.php`'s one inline `<script>` (the dark-mode
+flash-prevention snippet) carries it. `frame-ancestors 'none'` and
+`object-src 'none'` unconditionally. `connect-src` starts at `'self'`
+and is expanded ONLY for what's actually configured right now: the
+Reverb websocket origin (`config/broadcasting.php`, mapped
+`http`→`ws`/`https`→`wss`), the currently-ACTIVE AI provider's origin
+(`App\Models\AiProviderConfiguration::load()`), the three catalog
+source origins (`config/catalog.php`, static), and — consuming
+`App\Support\UmamiScript::allowedOrigin()` exactly as that class's own
+Task 19 docblock anticipated — Umami's origin when enabled (added to
+BOTH `script-src`, for its external `<script src>`, and `connect-src`,
+for its own tracking-beacon POST). `style-src 'self' 'unsafe-inline'`
+is the one deliberate relaxation: Sonner/Radix inject literal `<style>`
+elements with no nonce support, and inline STYLE injection is a
+materially lower-severity concern than inline SCRIPT injection, which
+stays strictly nonce'd — the standard, industry-wide trade-off for apps
+built on CSS-in-JS/portal-based UI kits. The Umami/AI-provider origin
+lookups both touch the database (Setting/Secret); both are wrapped in a
+`try/catch (Throwable)` so a broken/missing database degrades to "no
+extra origin" rather than turning an already-handled degraded response
+(e.g. `/up` when the database itself is down) into an unhandled 500 of
+this middleware's own — `/up` additionally excludes
+`ContentSecurityPolicy` outright (a machine-readable JSON health probe
+has no document for a CSP to govern, and building one is exactly the
+one thing that route exists to stay reachable through even when it's
+the thing that's broken). `App\Http\Middleware\SecurityHeaders` (new,
+GLOBAL — web, api, and the MCP route alike) adds the cheap, DB-free
+`X-Content-Type-Options: nosniff`, `Referrer-Policy:
+strict-origin-when-cross-origin`, `X-Frame-Options: DENY` (a legacy
+`frame-ancestors` companion), and `Strict-Transport-Security` only when
+`$request->isSecure()`.
+
+**Verifying the CSP doesn't break the app meant actually turning it on
+and running the app** — a curl of a real running instance confirmed the
+exact header (`script-src 'self' 'nonce-...'; ...; connect-src 'self'
+ws://localhost:8080 https://raw.githubusercontent.com
+https://hangar.papermc.io https://api.modrinth.com; ...`) and the nonce
+matching the rendered `<script nonce="...">`. The full `npm run e2e`
+suite (48 tests — the 46 pre-existing plus the two new contrast-guard
+tests above) passes with the CSP active the entire time (Playwright
+serves the real production build behind `php artisan serve`, and this
+middleware is unconditionally on for every `web`-group response, e2e
+included) — Inertia navigation, Sonner toasts, Radix dialogs/dropdowns,
+and the design-system's own live token switching all still work.
+
+**Trusted proxies, cookies, CSRF — verified/added, not reinvented.**
+`config/session.php`'s `secure=null` (auto-detects HTTPS via
+`$request->isSecure()`), `http_only=true`, `same_site='lax'` were
+already correct Laravel defaults; CSRF (`PreventRequestForgery`) is
+already unconditionally in the `web` group. The actual gap was trusted-
+proxy configuration: `Illuminate\Http\Middleware\TrustProxies` is
+ALWAYS in the global middleware stack but was never CONFIGURED (`at`
+defaults to trusting nothing), meaning `$request->isSecure()` could
+never reflect a real reverse proxy's `X-Forwarded-Proto`, which is what
+gates both HSTS and the secure-cookie auto-detection above. Added
+`TRUSTED_PROXIES` (comma-separated IPs/CIDRs, or `*`) — read in
+`App\Providers\AppServiceProvider::configureTrustedProxies()` (`boot()`,
+via `config('craftkeeper.trusted_proxies')`), NOT in `bootstrap/app.php`'s
+`withMiddleware()` closure, which — verified by hand (`php artisan
+route:list` threw `Target class [config] does not exist` when I first
+tried it there) — runs BEFORE the `LoadConfiguration` bootstrapper, so
+`config()`/cached-`env()` calls aren't safe there yet. Left unset (the
+default), this is a no-op — identical behavior to before this task.
+
+**Rate limits, upload/body-size limits.** `App\Providers\
+AppServiceProvider::configureApiRateLimiting()` gained four named
+limiters alongside the pre-existing `api` one: `ai` (20/min,
+`assistant/*`), `uploads` (10/min, plugin upload endpoints), `tokens`
+(10/min, API-token and MCP-grant issuance), `mcp` (60/min, keyed by the
+Passport OAuth CLIENT id via the same `TokenGuard`-crossing-a-function-
+boundary pattern `App\Mcp\Support\McpGuard::grantForGuard()` already
+uses, for the identical Larastan-narrowing reason). Upload/body limits
+were a REAL, pre-existing mismatch, not just hardening: nginx's
+`client_max_body_size` was `20m` while `config/craftkeeper.php`'s
+`PLUGIN_MAX_ARTIFACT_BYTES` default is 100 MiB (silently 413-ing any
+real plugin upload between 20–100 MiB), and NO `php.ini` of any kind was
+ever copied into the runtime image, leaving PHP's compiled-in
+`upload_max_filesize=2M`/`post_max_size=8M` defaults in place (silently
+breaking almost every real plugin upload at all). Fixed:
+`docker/php/uploads.ini` (`upload_max_filesize=110M`,
+`post_max_size=120M`, `memory_limit=256M`) plus
+`docker/nginx/default.conf`'s `client_max_body_size` raised to `120m` to
+match.
+
+**A second, unrelated infra bug found only by actually running the
+integration stack**: nginx's default `fastcgi_buffer_size` (one memory
+page, 4k on this image) was too small once the pre-existing `Link:`
+preload header (`Illuminate\Http\Middleware\
+AddLinkHeadersForPreloadedAssets`, one entry per eagerly-loaded asset)
+combined with this task's own CSP header — a real response's headers
+measured ~5.7 KiB, well past "upstream sent too big header" territory,
+502-ing EVERY page (not just heavy ones). Fixed with real headroom:
+`fastcgi_buffer_size 32k; fastcgi_buffers 4 32k;` in `docker/nginx/
+default.conf`'s PHP location block. This would never have been caught
+without actually building and running the Docker image — a unit/
+feature test never exercises nginx at all.
+
+**Secret-leak matrix (`tests/Integration/Security/SecretLeakTest.php`,
+8 tests, all passing).** Seeds two distinct canaries per test (a
+`Secret`-store one for `rcon.password`/`ai.api_key`, and a separate
+schema-discovered one written into a real `server.properties`
+`rcon.password=` line) and asserts absence across all 8 named surfaces:
+rendered HTML (config editor), JSON (`/api/v1/config/files/{path}`),
+websocket/broadcast (`OperationUpdated::broadcastWith()` — a strict
+scalar allow-list, proven to never carry a secret even when the
+underlying `Operation`'s own `target`/`redacted_input` are deliberately
+seeded with the canary), application logs (a byte-offset delta of
+`storage/logs/laravel.log` across the whole test, not just a static
+grep), audit events (`McpAuditEvent.arguments`, via a secret-shaped RCON
+command through `run_safe_rcon`, mirroring the exact scenario git commit
+`0199fee` fixed), the support bundle (reusing the exact ZIP-walking
+pattern `tests/Feature/Support/SupportBundleTest.php` already
+established), the AI transport body (reusing `tests/Feature/Ai/
+AiRedactionAndInjectionTest.php`'s `MockHttpClient`-capturing pattern),
+and MCP output (`craftkeeper://config/files/{path}` resource). Task
+20's own Pest.php split was needed for this: `Integration/Security`
+(new) is the one `Integration` subdirectory that touches a real
+database — the pre-existing `Integration` binding deliberately skips
+`RefreshDatabase` ("none of these touch the database"), so a SEPARATE
+`pest()->extend(...)->use(RefreshDatabase::class)->in('Integration/
+Security')` registration was added (Pest does not allow one directory
+covered by two `extend()` calls referencing the same base `TestCase`,
+so the general binding was narrowed to the two subdirectories that
+existed before this task, `Integration/Filesystem` and the new
+`Integration/Runtime`).
+
+**Documented, NOT tested as if it were false**: Minecraft console
+output (`App\Events\ConsoleEntryReceived`) is NOT secret-redacted by
+design (it is the Minecraft server's OWN free-form stdout, entirely
+outside CraftKeeper's control — a plugin or player could print anything)
+and this is recorded as a deliberate, accepted boundary in
+`docs/security/threat-model.md` rather than asserted-and-worked-around
+in the test suite.
+
+**Filesystem boundary
+(`tests/Integration/Security/FilesystemBoundaryTest.php`, 8 tests, all
+passing) — found and fixed two real bugs.** Drives path-traversal/
+symlink-escape/non-regular-file rejection through THREE independent
+real entry points (the web config editor, the REST API, an MCP
+resource) reusing `tests/fixtures/minecraft`'s own pre-built escape
+vectors (`escape-link.yml`, `escape-dir/secret.txt`) rather than
+re-deriving `tests/Unit/Filesystem/MinecraftPathTest.php`'s already-
+exhaustive unit coverage. Verified BY HAND (an `Illuminate\Routing\
+Events\RouteMatched` listener) that a literal `..` in the request URI
+survives Laravel's routing completely unnormalized and really does
+reach the controller — the 404 it produces is `abort(404)` firing
+AFTER containment rejection, not routing failing to match, which
+matters because both produce the identical `NotFoundHttpException`.
+Writing this test found a real bug: both `App\Http\Controllers\
+ConfigController::resolvePath()` and `App\Http\Controllers\Api\V1\
+ConfigController::resolvePath()` caught only `UnsafeMinecraftPath`
+around `MinecraftPath::fromUserInput()`, but that same call ALSO
+throws `NotARegularFile` directly (an existing directory, FIFO, socket,
+or device file resolves without ever reaching the separate
+`MinecraftFilesystem::read()` call whose OWN try/catch already handled
+that exception) — an existing FIFO under the Minecraft root previously
+produced an unhandled 500 instead of the clean 404 every other
+containment rejection produces. Fixed in both controllers.
+
+**Docs**: `docs/operations/test-matrix.md` encodes the brief's 10-
+dimension table verbatim, with a coverage map naming the actual covering
+test file for each cell (every path in it verified to exist) and
+disclosing two real gaps rather than papering over them: only the
+Chromium Playwright project is configured (Firefox/WebKit need `npx
+playwright install firefox webkit` in an environment with registry
+access, unavailable in this sandbox), and `App\Ai\Providers\
+AbstractAiProvider` does not currently distinguish 401 vs 429 vs
+timeout into different reported states (all collapse to the same
+generic "unavailable" `AiUnavailableTest.php` already covers).
+`docs/security/threat-model.md` documents the trust boundaries (browser/
+API/MCP/catalog/JAR/log/AI input untrusted; only services create
+Operations; only approved operations mutate; filesystem containment;
+RCON bounds; no secrets to external AI; MCP cannot approve — the last
+proven by `App\Mcp\Support\McpGuard`/`McpGrantPolicy` denying an
+apply/approve action to a grant scoped only for proposing).
+
+**Integration stack (`docker-compose.integration.yml`) — built, run for
+real against real containers on this machine (registry/Docker access
+IS available here), and iterated until all 10 scenarios genuinely
+passed**, not just written and assumed correct. `minecraft-seed`
+(one-shot, `alpine`) copies `tests/fixtures/minecraft-paper-geyser-
+floodgate/` (a new fixture — two REAL, minimal, valid JARs built the
+same programmatic way `tests/fixtures/plugins/JarFixtureBuilder.php`
+builds its own, `server.properties` with RCON pre-enabled matching the
+fake service, a realistic `logs/latest.log`) into a disposable named
+volume; `fake-rcon` (new, `docker/fake-rcon/server.js` — a ~150-line,
+dependency-free Node TCP server implementing exactly the wire protocol
+`App\Console\MinecraftRconClient`'s own docblock documents, verified
+against that REAL production class before ever touching Docker: auth
+accept/reject by request id, bounded packet-length validation, a
+handful of recognized commands including `list`/`seed`); `craftkeeper`
+(the real application image); `tests` (new, `docker/integration-tests/
+run.php` — plain PHP+cURL, no framework, driving the running container
+over real HTTP exactly like a browser/API/MCP client would). Bugs found
+and fixed ONLY by actually running this (none would have been caught by
+any unit/feature/e2e test, since none of them exercise Docker/nginx/a
+second real container at all):
+
+1. `minecraft-seed` left every file owned by `root:root` (its own
+   default user), which the `craftkeeper` container's non-root
+   `craftkeeper` user (uid/gid 1000) could read but not write — every
+   config-apply failed post-write verification with "the automatic
+   rollback also failed." Fixed: `chown -R 1000:1000` after the copy.
+2. The nginx `fastcgi_buffer_size` bug described above (found via this
+   exact stack, not the Legendary smoke test).
+3. This app's Inertia setup embeds the page payload as
+   `<script data-page="app" type="application/json">{...}</script>`
+   (a CSP-nonce-friendly convention), not the classic `<div data-page=
+   "...">` HTML ATTRIBUTE most Inertia tooling assumes — the test
+   runner's own HTML-parsing helper needed a real fix to match.
+4. `client_credentials`-grant OAuth tokens carry NO associated user —
+   `Laravel\Passport\Guards\TokenGuard::authenticateViaBearerToken()`
+   explicitly returns null for one — so `auth:passport` on
+   `/mcp/craftkeeper` 401s before `App\Mcp\Support\McpGuard` ever runs,
+   regardless of scope. The "MCP proposal" scenario now drives the REAL
+   authorization-code + PKCE flow instead (a new test-only endpoint,
+   `App\Http\Controllers\E2eMcpBootstrapController` — gated by the
+   IDENTICAL, doubly-enforced guard `E2eResetController::allowed()`
+   uses — creates the client/grant exactly the way `McpGrantController::
+   store()` does for a real operator; the test runner then completes
+   the SAME consent-screen-approve-then-token-exchange dance a real MCP
+   client does, using PKCE and reading the `auth_token` off the real
+   rendered consent HTML).
+5. `Laravel\Passport\Client::secret()`'s attribute mutator hashes the
+   secret on write; the one-time plaintext lives on `$client->plainSecret`
+   (in-memory only, readable only during the creating request), not
+   `$client->secret`.
+
+All 10 scenarios (discovery, config propose+apply, config restore
+[skipped this run — fewer than 2 revisions on file, an honest SKIP not
+a forced pass], live console via a real RCON `list` through the web
+console, plugin manual-install/update/rollback of a real JAR, API scope
+enforcement, MCP proposal via the real OAuth flow, an RCON outage the
+app survives, the restart-required flag flipping on a real
+`restartImpact: "restart"` field edit, and backup create/list/download
+of a real non-empty ZIP) passed for real, verified via
+`docker compose -f docker-compose.integration.yml up --build
+--abort-on-container-exit --exit-code-from tests` exiting 0, then
+`down -v` (scoped to this compose project's own containers/volumes/
+network only, verified empty afterward — the pre-existing, unrelated
+`codex-plugin-compat` container on this shared host was never touched).
+
+**Legendary stack smoke test
+(`tests/Integration/Runtime/LegendaryStackSmokeTest.php`) — opt-in,
+skipped by default (`CRAFTKEEPER_LEGENDARY_SMOKE=1` to run), but ACTUALLY
+RUN AND VERIFIED PASSING in this sandbox**, which turned out to have
+real Docker registry access after all (confirmed: `05jchambers/
+legendary-minecraft-geyser-floodgate:latest` pulled and booted a real
+Paper 26.1.2 server with Geyser 2.11.0/Floodgate 2.2.5/ViaVersion 5.11.0
+in ~20 seconds). Pins the resolved digest in its own recorded result
+(`05jchambers/legendary-minecraft-geyser-floodgate@sha256:
+9b44ad28c7661e7ffa2b01fbb7dd971aacdeefd81c025b596f99c81325dab5ab`,
+written to `storage/logs/legendary-smoke-result.log`, gitignored).
+`EULA=TRUE` is set ONLY on this test's own ephemeral container. Exercises
+a real RCON authentication (a pre-seeded, RCON-enabled `server.properties`
++ `eula.txt` written into a fresh named volume BEFORE the image's own
+`start.sh` ever runs — verified by hand that it respects, rather than
+overwrites, files that already exist) plus a safe `list` command AND a
+wrong-password rejection, both via the exact production
+`App\Console\MinecraftRconClient` — closing the one gap Task 10's own
+ambiguity resolution left open on purpose (RCON's wire-protocol
+correctness being unit-verified only, against a fake transport). Also
+exercises read-only discovery: `docker cp`s the live volume out to a
+local, disposable directory and runs `App\Config\
+ConfigDiscoveryService::discover()` against it directly, proving
+discovery against a genuine Paper install's real file layout rather than
+only this repo's curated fixtures. NEVER runs any plugin-mutation
+scenario against this (or any) real server — read-only discovery and one
+safe RCON command only. Cleans up ONLY its own two exact-named resources
+(`craftkeeper-legendary-smoke-test` container, `craftkeeper-legendary-
+smoke-data` volume) in a `finally` block, verified empty after the run;
+the pre-existing, unrelated `codex-plugin-compat` container (a different
+project, already on this shared host, using the same base image) was
+never touched.
+
+**Performance budgets — measured, not assumed.** Initial JS: walked
+`public/build/manifest.json`'s real dependency graph from the `app.tsx`
+entry PLUS a representative heavy page (`DesignSystem.tsx`), gzipped
+every file in that closure at compression level 9, summed: **212.44
+KiB** (31 files) — under the 250 KiB budget with ~15% headroom. p95:
+40 real HTTP requests (after a warm-up) against a locally-served
+production build with `config:cache`/`route:cache` warmed — `/design-
+system` (public) p95 **24.8 ms**, `/up` p95 **9.7 ms**, and three real
+authenticated, data-driven pages (`/overview`, `/configurations`,
+`/plugins`, 30 requests each) p95 **45.3 ms** / **50.9 ms** / **33.7
+ms** — all comfortably under the 2-second budget (these are local,
+single-machine measurements with no real network RTT, which is the
+right scope for catching a pathologically slow response, e.g. an N+1
+query or an unbounded loop, not for simulating internet latency).
+
+**Self-review findings, fixed before reporting**: the four contrast
+pairs (computed, not assumed, both themes); the CSP nonce +
+Umami-origin consumption (verified against a live running instance,
+not just code inspection); every listed header/rate limit present; the
+secret canary absent from all 8 surfaces (verified by a real, passing
+integration test, not a code-review assertion); filesystem containment
+proven end-to-end through three real callers (and two real bugs fixed
+in the process); the integration stack actually run to a real, clean
+pass (not left as "should work"); the Legendary smoke test actually run
+and observed passing (not just written correctly and left opt-in, as
+the brief anticipated might be all that was possible here); performance
+budgets measured with real numbers recorded.
+
+**Gates, run for real:** `composer test` (880 tests — 869 passed, 11
+skipped [10 pre-existing + the new opt-in Legendary smoke], 0 failures;
+PHPStan level 7 clean; Pint clean). `npm run test` (14/14). `npm run
+typecheck` (clean). `npm run build` (succeeds; initial JS budget met —
+see above). `npm run e2e` (48/48 — the 46 pre-existing plus the two new
+contrast-guard tests, all passing WITH the CSP active). `docker compose
+-f docker-compose.integration.yml up --build --abort-on-container-exit
+--exit-code-from tests` (exit 0, all 10 scenarios passed) then `down -v`
+(this project's own resources only, verified empty afterward).
+`CRAFTKEEPER_LEGENDARY_SMOKE=1 php artisan test tests/Integration/
+Runtime/LegendaryStackSmokeTest.php` (1/1 passed, ~25s, against the real
+pinned-digest image).
+
+**Concerns for follow-up, out of this task's explicit scope**: the
+dark-theme `StatusBadge` danger chip against `--ck-elevated`
+specifically (4.31:1, marginally under AA — not a live violation since
+nothing renders it there today); Firefox/WebKit Playwright projects
+(need `npx playwright install` with registry access); AI provider
+401/429/timeout are not distinguished into separate reported states;
+Minecraft console output remains un-redacted by design (documented, not
+silently gapped).

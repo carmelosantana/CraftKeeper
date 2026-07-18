@@ -18,12 +18,29 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
-// Unit, Integration, and Contract tests get the full Laravel TestCase (so
-// config(), app(), etc. work) but skip RefreshDatabase — none of these
-// touch the database. Contract tests validate fixtures against
-// resources/catalog/plugin-catalog.schema.json purely in memory.
+// Unit, Integration/Filesystem, Integration/Runtime, and Contract tests
+// get the full Laravel TestCase (so config(), app(), etc. work) but skip
+// RefreshDatabase — none of these touch the database. Contract tests
+// validate fixtures against resources/catalog/plugin-catalog.schema.json
+// purely in memory. Task 20's Integration/Runtime (the opt-in Legendary
+// stack smoke test) only ever drives a real HTTP/RCON connection to an
+// external container, never Eloquent.
+//
+// Listed as explicit subdirectories (not a blanket 'Integration') because
+// Task 20's OWN Integration/Security needs a real database (see below) —
+// Pest does not allow one directory to be covered by two separate
+// `extend()` registrations that both reference the same TestCase.
 pest()->extend(TestCase::class)
-    ->in('Unit', 'Integration', 'Contract');
+    ->in('Unit', 'Integration/Filesystem', 'Integration/Runtime', 'Contract');
+
+// Task 20: Integration/Security is the one Integration subdirectory that
+// DOES need a real (fast, in-memory) database — SecretLeakTest exercises
+// real Users/Operations/McpGrants/AiConversations/McpAuditEvents across
+// the full redaction matrix, and FilesystemBoundaryTest drives real HTTP/
+// MCP entry points that require an authenticated admin.
+pest()->extend(TestCase::class)
+    ->use(RefreshDatabase::class)
+    ->in('Integration/Security');
 
 /*
 |--------------------------------------------------------------------------

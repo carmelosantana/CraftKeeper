@@ -25,13 +25,17 @@ use App\Operations\OperationHandlerRegistry;
 use App\Testing\E2eFixturePluginSource;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\Guard;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Passport\Guards\TokenGuard;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -151,9 +155,42 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureTrustedProxies();
         $this->configureApiRateLimiting();
         $this->configurePassportConsent();
         $this->registerMcpRoutes();
+    }
+
+    /**
+     * Task 20: TRUSTED_PROXIES (config/craftkeeper.php `trusted_proxies`)
+     * — comma-separated IPs/CIDRs, the literal '*' to trust any proxy, or
+     * unset/blank to trust none (the default; a no-op, identical to this
+     * app's behavior before this task). Called from boot() rather than
+     * via `Middleware::trustProxies()` in bootstrap/app.php because that
+     * closure runs before config is loaded (see bootstrap/app.php's own
+     * comment) — `Illuminate\Http\Middleware\TrustProxies::class` is
+     * already unconditionally in the global middleware stack regardless
+     * of whether this ever runs, so calling its `at()`/`withHeaders()`
+     * static setters directly here is equivalent to, not a substitute
+     * for, that fluent helper.
+     *
+     * Getting this right is what lets `$request->isSecure()` — HSTS
+     * (App\Http\Middleware\SecurityHeaders), and SESSION_SECURE_COOKIE's
+     * own null-means-auto-detect behavior (config/session.php, untouched
+     * by this task) — correctly reflect an HTTPS-terminating reverse
+     * proxy's `X-Forwarded-Proto` instead of the always-plain-HTTP
+     * connection PHP-FPM/nginx see inside the container
+     * (docker/nginx/default.conf never terminates TLS itself).
+     */
+    protected function configureTrustedProxies(): void
+    {
+        $trustedProxies = trim((string) config('craftkeeper.trusted_proxies'));
+
+        if ($trustedProxies === '') {
+            return;
+        }
+
+        TrustProxies::at($trustedProxies === '*' ? '*' : array_map('trim', explode(',', $trustedProxies)));
     }
 
     /**
@@ -239,6 +276,33 @@ class AppServiceProvider extends ServiceProvider
      * at all, which App\Http\Middleware\EnsureApiScope would reject
      * anyway, but the 'throttle:api' middleware in bootstrap/app.php's
      * 'api' group runs first).
+     *
+     * Task 20 adds four more named limiters alongside it, all keyed the
+     * same way (the authenticated admin's user id when there is a
+     * session, else the client IP — there is only ever one admin account
+     * in this app, so a per-user key here is mostly documentation of
+     * intent, but keeps every limiter's key derivation identical and
+     * future-proof):
+     *
+     * - `ai` — the assistant's conversation/message endpoints
+     *   (routes/web.php `assistant/*`). A single message can trigger a
+     *   real outbound call to a paid hosted provider, so this is
+     *   deliberately tighter than the general web traffic these routes
+     *   otherwise share no throttling with at all.
+     * - `uploads` — plugin JAR upload endpoints (routes/web.php
+     *   `plugins/upload`, `plugins/upload/{token}/propose`). Bounds
+     *   abuse of the (already size- and time-bounded, see
+     *   config/craftkeeper.php `plugins.*`) quarantine/hash pipeline.
+     * - `tokens` — API personal-access-token and MCP OAuth-grant
+     *   issuance (routes/web.php `integrations/api/tokens`,
+     *   `integrations/mcp/grants`). Credential-issuance endpoints are a
+     *   classic brute-force/abuse target even behind an authenticated
+     *   session.
+     * - `mcp` — the entire MCP JSON-RPC endpoint (routes/mcp.php).
+     *   Higher than the other three: a single legitimate MCP client
+     *   session can reasonably make several tool/resource calls per
+     *   user action (Task 18/20's own smoke/integration tests exercise
+     *   more than one call per scenario).
      */
     protected function configureApiRateLimiting(): void
     {
@@ -248,6 +312,53 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(120)->by($tokenId ?? $request->ip());
         });
+
+        RateLimiter::for('ai', fn (Request $request) => Limit::perMinute(20)
+            ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
+        RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(10)
+            ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
+        RateLimiter::for('tokens', fn (Request $request) => Limit::perMinute(10)
+            ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
+        RateLimiter::for('mcp', fn (Request $request) => Limit::perMinute(60)
+            ->by($this->mcpClientIdForRateLimit() ?? $request->ip()));
+    }
+
+    /**
+     * Same resolution App\Mcp\Support\McpGuard itself uses (see that
+     * class's docblock for exactly why): the Passport OAUTH CLIENT
+     * identity via TokenGuard::client(), not a currentAccessToken() call
+     * that doesn't statically exist on this app's Sanctum-templated User
+     * model.
+     */
+    protected function mcpClientIdForRateLimit(): int|string|null
+    {
+        return $this->mcpClientIdForGuard(Auth::guard('passport'));
+    }
+
+    /**
+     * Takes the plain `Illuminate\Contracts\Auth\Guard` interface —
+     * exactly App\Mcp\Support\McpGuard::grantForGuard()'s own trick, and
+     * for the identical reason (see that method's docblock in full):
+     * Larastan's Auth reflection extension speculatively narrows
+     * `Auth::guard('passport')` to `Illuminate\Auth\RequestGuard` inline,
+     * with no way to see that `Laravel\Passport\PassportServiceProvider`
+     * registers the 'passport' driver via `Auth::extend()` to actually
+     * construct a `Laravel\Passport\Guards\TokenGuard` at runtime —
+     * making a direct `instanceof TokenGuard` check at the call site
+     * misreport as "always false". Crossing a function boundary with an
+     * explicitly, correctly typed parameter resets analysis to that
+     * DECLARED (interface) type instead.
+     */
+    protected function mcpClientIdForGuard(Guard $guard): int|string|null
+    {
+        if (! $guard instanceof TokenGuard) {
+            return null;
+        }
+
+        return $guard->client()?->getKey();
     }
 
     /**

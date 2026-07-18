@@ -45,7 +45,12 @@ use Laravel\Mcp\Facades\Mcp;
  * only by App\Providers\AppServiceProvider::configurePassport().
  */
 Mcp::web('/mcp/craftkeeper', CraftKeeperServer::class)
-    ->middleware(['auth:passport'])
+    // Task 20: 'throttle:mcp' runs AFTER 'auth:passport' so a bearer
+    // token is validated first — the rate limit
+    // (App\Providers\AppServiceProvider::configureApiRateLimiting())
+    // keys by the authenticated OAuth CLIENT id, falling back to IP only
+    // for the (already-401-rejected-first) unauthenticated case.
+    ->middleware(['auth:passport', 'throttle:mcp'])
     ->name('mcp.craftkeeper');
 
 Route::get('/.well-known/oauth-protected-resource', fn () => response()->json(

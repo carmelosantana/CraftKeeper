@@ -14,7 +14,14 @@ const badgeVariants = cva(
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
-          "border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          // Task 20: same fix as resources/js/components/ui/button.tsx's
+          // destructive variant — `text-white` bypassed the
+          // `--destructive-foreground` token (now theme-aware; see
+          // resources/css/app.css `--ck-danger-fg`). This variant has no
+          // current call site (`variant="destructive"` is unused on
+          // `<Badge>` app-wide) but is fixed for consistency so it isn't
+          // a live AA violation waiting to happen the first time it is.
+          "border-transparent bg-destructive text-destructive-foreground [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
           "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
       },

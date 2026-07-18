@@ -231,20 +231,20 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
 
 /**
  * A safe fallback for call sites whose background isn't one of
- * `StatusBadge`'s chip fill's contrast-verified surfaces. The chip fill
- * is a ~15% tint of the status's tone color (see `ckChipStyle` /
- * `design-tokens.json`'s "badge fills ~15%" convention) — verified
- * AA-safe for most tones on `--ck-surface`, but Task 12's own e2e axe
- * scan found the "danger" tone (offline/failed/rolled-back) measures
- * ~4.3:1 there, under the 4.5:1 AA threshold (the tint brings the
- * background color closer to the vivid danger hue itself, which
- * paradoxically REDUCES contrast against danger-colored text — verified
- * by hand, not just observed). This pairs the identical per-status shape
- * (`StatusGlyph`) with a plain `--ck-text` label instead, which holds AA
- * on every surface in this app — the same fix already applied to
- * `AppShell.tsx`'s `ServerIdentityCard` and
- * `resources/js/features/config/DiffReview.tsx`'s risk indicator (see
- * docs/architecture/decisions.md, Tasks 3/9/12).
+ * `StatusBadge`'s chip fill's contrast-verified surfaces. Historically
+ * (Tasks 3/9/12), `ckChipStyle`'s ~15% tint measured ~4.3:1 for the
+ * "danger" tone (offline/failed/rolled-back) against `--ck-surface` —
+ * under the 4.5:1 AA threshold, because a HIGHER tint paradoxically
+ * REDUCES contrast against same-colored text (it moves the background
+ * toward the text's own color). Task 20 fixed this at the token source
+ * (`ckChipStyle` now mixes 5%, not 15% — see that function's own
+ * docblock in resources/js/lib/ck-tokens.ts) rather than here, so
+ * `StatusBadge`'s chip fill itself now clears AA for every tone this app
+ * uses. `StatusText` remains available as a plain, chip-free fallback for
+ * call sites that want one — `AppShell.tsx`'s `ServerIdentityCard` and
+ * `resources/js/features/config/DiffReview.tsx`'s risk indicator still
+ * use it — but it is no longer required for AA on `StatusBadge`'s own
+ * account. See docs/architecture/decisions.md (Tasks 3/9/12/20).
  */
 export function StatusText({ status, label, className }: StatusBadgeProps) {
     const meta = STATUS_BADGE_META[status];

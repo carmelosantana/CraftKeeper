@@ -19,6 +19,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies (Task 20)
+    |--------------------------------------------------------------------------
+    |
+    | Read here (not directly via env() in bootstrap/app.php, which would
+    | return null once config is cached in production) and passed to
+    | Illuminate\Foundation\Configuration\Middleware::trustProxies() at
+    | boot. See .env.example's TRUSTED_PROXIES comment for the exact
+    | semantics (comma-separated IPs/CIDRs, '*' to trust any proxy, or
+    | unset to trust none — the default, and a no-op change in behavior).
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Minecraft Root
     |--------------------------------------------------------------------------
     |

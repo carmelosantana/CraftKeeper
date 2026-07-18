@@ -5,9 +5,11 @@ use App\Console\Commands\PrunePluginRollbackArtifacts;
 use App\Console\Commands\PruneServerObservationData;
 use App\Console\Commands\SampleServerState;
 use App\Http\Middleware\AssignApiCorrelationId;
+use App\Http\Middleware\ContentSecurityPolicy;
 use App\Http\Middleware\EnsureApiScope;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use App\Server\LogTailService;
 use App\Support\Api\ApiError;
 use App\Support\Api\Exceptions\IdempotencyKeyConflict;
@@ -48,6 +50,36 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
+        // Task 20: trusted-proxy configuration (TRUSTED_PROXIES) is set
+        // from App\Providers\AppServiceProvider::configureTrustedProxies()
+        // instead of here — this closure runs (via
+        // Illuminate\Foundation\Configuration\ApplicationBuilder's
+        // `afterResolving(HttpKernel::class, ...)`/`afterResolving(
+        // ConsoleKernel::class, ...)`) BEFORE the LoadConfiguration
+        // bootstrapper has run, so `config()` is not yet available here
+        // (verified: it throws "Target class [config] does not exist").
+        // `Illuminate\Http\Middleware\TrustProxies::class` is already
+        // unconditionally in the global middleware stack regardless —
+        // `$middleware->trustProxies()` is only ever a convenience
+        // wrapper around the same `TrustProxies::at()`/`::withHeaders()`
+        // static calls AppServiceProvider makes directly, once config
+        // actually exists.
+
+        // Task 20: cheap, DB-free headers (nosniff/referrer-policy/HSTS/
+        // X-Frame-Options — see SecurityHeaders' own docblock) apply to
+        // EVERY response, including /api/v1 and the MCP JSON-RPC
+        // endpoint (routes/mcp.php's own route group sits outside both
+        // the 'web' and 'api' groups, but never outside this global
+        // stack).
+        $middleware->append(SecurityHeaders::class);
+
+        $middleware->web(prepend: [
+            // Runs before HandleInertiaRequests/HandleAppearance so the
+            // nonce it shares (View::share('cspNonce', ...)) is already
+            // set before Inertia's root view (resources/views/
+            // app.blade.php) ever renders.
+            ContentSecurityPolicy::class,
+        ]);
         $middleware->web(append: [
             HandleAppearance::class,
             HandleInertiaRequests::class,

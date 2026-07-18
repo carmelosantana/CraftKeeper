@@ -4,8 +4,18 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
+        {{--
+            Task 20: `$cspNonce` is shared into every view by
+            App\Http\Middleware\ContentSecurityPolicy (the 'web' group
+            only — see bootstrap/app.php) and matched against the
+            `script-src 'nonce-...'` directive in the Content-Security-
+            Policy response header. Falls back to an empty string so this
+            template still renders (with a nonce attribute CSP simply
+            won't match) on the rare path that isn't covered by that
+            middleware.
+        --}}
         {{-- Inline script to detect system dark mode preference and apply it immediately --}}
-        <script>
+        <script nonce="{{ $cspNonce ?? '' }}">
             (function() {
                 const appearance = '{{ $appearance ?? "system" }}';
 

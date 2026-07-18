@@ -1044,7 +1044,16 @@ class ConfigController extends Controller
     {
         try {
             return MinecraftPath::fromUserInput($rawPath);
-        } catch (UnsafeMinecraftPath) {
+        } catch (UnsafeMinecraftPath|NotARegularFile) {
+            // Task 20: MinecraftPath::fromUserInput() itself throws
+            // NotARegularFile directly (an existing directory, FIFO,
+            // socket, or device file) — not only UnsafeMinecraftPath —
+            // whenever the resolved path already exists and isn't a
+            // regular file. This catch previously only listed
+            // UnsafeMinecraftPath, so that case fell through uncaught
+            // into an unhandled 500 instead of the same clean 404 every
+            // other containment rejection produces (caught by
+            // tests/Integration/Security/FilesystemBoundaryTest.php).
             abort(404);
         }
     }

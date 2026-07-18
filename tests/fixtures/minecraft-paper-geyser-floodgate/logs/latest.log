@@ -1,0 +1,9 @@
+[09:00:00 INFO]: Starting minecraft server version 1.21.4
+[09:00:00 INFO]: Loading properties
+[09:00:01 INFO]: Default game type: SURVIVAL
+[09:00:01 INFO]: Preparing level "world"
+[09:00:02 INFO]: [Geyser-Spigot] Loading Geyser version 2.4.0
+[09:00:02 INFO]: [floodgate] Loading floodgate version 2.2.3
+[09:00:03 INFO]: [Geyser-Spigot] Started Geyser on 0.0.0.0:19132
+[09:00:03 INFO]: RCON running on 0.0.0.0:25575
+[09:00:03 INFO]: Done (3.412s)! For help, type "help"

@@ -1,0 +1,129 @@
+# Task 20's fixture-based integration stack. Verifies discovery, config
+# propose/apply/restore, live console, plugin upload/update/rollback, API
+# scope, MCP proposal, an optional-service (RCON) outage, restart-required
+# state, and backup/restore — end to end, against a REAL running
+# CraftKeeper container, WITHOUT a production Minecraft server. Every
+# container/volume here uses a project-scoped, uniquely-named identity
+# (the `craftkeeper-integration-*` prefix on named volumes below; compose
+# itself prefixes container/network names with this file's project name)
+# so cleanup (`docker compose -f docker-compose.integration.yml down -v`)
+# can never touch anything belonging to another project on a shared host.
+#
+# Run:
+#   docker compose -f docker-compose.integration.yml up --build \
+#     --abort-on-container-exit --exit-code-from tests
+#   docker compose -f docker-compose.integration.yml down -v
+#
+# See docs/architecture/decisions.md (Task 20) for the scenario-by-
+# scenario result of the last real run, and docs/security/threat-model.md
+# / docs/operations/test-matrix.md for how this fits the wider release
+# matrix.
+
+name: craftkeeper-integration
+
+services:
+  # One-shot: populates the shared, disposable Minecraft volume from the
+  # git-tracked fixture, then exits 0. craftkeeper/fake-rcon both wait for
+  # this to succeed before starting (depends_on: condition:
+  # service_completed_successfully) so neither ever sees a half-seeded
+  # volume.
+  minecraft-seed:
+    image: alpine:3.20
+    volumes:
+      - ./tests/fixtures/minecraft-paper-geyser-floodgate:/seed:ro
+      - minecraft-integration-data:/minecraft
+    # Task 20: discovered for real running this stack — copying as this
+    # (root) container's default owner left every file owned by
+    # root:root, which the craftkeeper container's own non-root
+    # `craftkeeper` user (uid/gid 1000 — see Dockerfile) could read but
+    # not WRITE, so its every config-apply failed post-write
+    # verification with "the automatic rollback also failed" (a real,
+    # actionable server-side error, not a fixture/script bug). uid/gid
+    # 1000 matches that Dockerfile exactly.
+    command: >
+      sh -c "cp -a /seed/. /minecraft/ && chown -R 1000:1000 /minecraft && echo 'seeded minecraft volume'"
+
+  fake-rcon:
+    build:
+      context: ./docker/fake-rcon
+    environment:
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "craftkeeper-integration-rcon"
+    depends_on:
+      minecraft-seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').createConnection(25575,'127.0.0.1').on('connect',function(){process.exit(0)}).on('error',function(){process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  craftkeeper:
+    build:
+      context: .
+    environment:
+      APP_NAME: CraftKeeper
+      APP_ENV: local
+      # A fixed, throwaway key for this disposable stack only (never
+      # reused anywhere real) — generated once via `php artisan
+      # key:generate --show`, not a placeholder; Laravel's encrypter
+      # requires a real 32-byte key to boot at all.
+      APP_KEY: base64:6iThqCZbrCf4SSXzf1jq5cWVNkj4v+7K6WCYbGLRQe0=
+      APP_DEBUG: "false"
+      APP_URL: http://craftkeeper:8080
+      MINECRAFT_ROOT: /minecraft
+      DATA_ROOT: /data
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/database.sqlite
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      # Matches compose.example.yml's real deployment shape (Reverb, not
+      # 'log') so docker/supervisor/supervisord.conf's `reverb` program
+      # actually has something valid to boot against — a disposable,
+      # non-secret dev key pair (same convention as .env.example's own
+      # comment: "not sensitive, identifies a websocket client").
+      REVERB_APP_ID: "100001"
+      REVERB_APP_KEY: "integrationstackkey"
+      REVERB_APP_SECRET: "integrationstacksecret"
+      REVERB_HOST: "craftkeeper"
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: "http"
+      # Enables POST /__e2e__/reset and POST /__e2e__/mcp-bootstrap ONLY
+      # (both also require APP_ENV to be local/testing, checked again —
+      # see routes/testing.php) — never set in compose.example.yml, the
+      # Dockerfile, or .env.example. This is the SAME test-only flag
+      # tests/e2e already relies on (playwright.config.ts), reused here
+      # rather than inventing a second mechanism.
+      E2E_TESTING: "true"
+    volumes:
+      - minecraft-integration-data:/minecraft
+      - craftkeeper-integration-data:/data
+    depends_on:
+      minecraft-seed:
+        condition: service_completed_successfully
+      fake-rcon:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/up"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  tests:
+    build:
+      context: ./docker/integration-tests
+    environment:
+      CRAFTKEEPER_BASE_URL: http://craftkeeper:8080
+      RCON_HOST: fake-rcon
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "craftkeeper-integration-rcon"
+    depends_on:
+      craftkeeper:
+        condition: service_healthy
+    command: ["php", "run.php"]
+
+volumes:
+  minecraft-integration-data:
+  craftkeeper-integration-data:

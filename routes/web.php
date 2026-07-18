@@ -13,6 +13,7 @@ use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OverviewController;
 use App\Http\Controllers\PluginController;
 use App\Http\Controllers\ServerController;
+use App\Http\Middleware\ContentSecurityPolicy;
 use App\Http\Middleware\RequireInstallation;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -26,6 +27,15 @@ Route::get('/up', HealthController::class)
         EncryptCookies::class,
         PreventRequestForgery::class,
         ShareErrorsFromSession::class,
+        // Task 20: a machine-readable JSON health probe has no document
+        // for a Content-Security-Policy to govern, and (unlike
+        // App\Http\Middleware\SecurityHeaders, left in place) building
+        // one touches the database (Umami/AI provider Settings) — the
+        // one thing this exact route exists to stay reachable through
+        // even when it's broken. ContentSecurityPolicy already degrades
+        // gracefully on its own (see that class's own try/catch) but
+        // there is no reason to pay for it here at all.
+        ContentSecurityPolicy::class,
     ])
     ->name('health');
 
@@ -116,7 +126,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::prefix('integrations')->name('integrations.')->group(function () {
         Route::get('api', [ApiTokenController::class, 'index'])->name('api');
-        Route::post('api/tokens', [ApiTokenController::class, 'store'])->name('api.tokens.store');
+        Route::post('api/tokens', [ApiTokenController::class, 'store'])->middleware('throttle:tokens')->name('api.tokens.store');
         Route::delete('api/tokens/{token}', [ApiTokenController::class, 'destroy'])->name('api.tokens.destroy');
 
         // Task 18: the MCP OAuth integration management page — connection
@@ -127,7 +137,11 @@ Route::middleware(['auth'])->group(function () {
         // App\Models\McpGrant/Laravel\Passport\Client rows those calls are
         // later authorized against.
         Route::get('mcp', [McpGrantController::class, 'index'])->name('mcp');
-        Route::post('mcp/grants', [McpGrantController::class, 'store'])->name('mcp.grants.store');
+        // Task 20: credential-issuance endpoints get their own 'tokens'
+        // rate limit (App\Providers\AppServiceProvider::
+        // configureApiRateLimiting()) on top of the session auth every
+        // route in this group already requires.
+        Route::post('mcp/grants', [McpGrantController::class, 'store'])->middleware('throttle:tokens')->name('mcp.grants.store');
         Route::delete('mcp/grants/{grant}', [McpGrantController::class, 'destroy'])->name('mcp.grants.destroy');
     });
 
@@ -138,7 +152,11 @@ Route::middleware(['auth'])->group(function () {
     // never affects any other route in this group — see App\Ai\AiManager
     // and tests/Feature/Ai/AiUnavailableTest.php.
     Route::get('assistant', [AssistantController::class, 'index'])->name('assistant');
-    Route::prefix('assistant')->name('assistant.')->group(function () {
+    // Task 20: the whole conversation/message lifecycle shares one 'ai'
+    // rate limit (App\Providers\AppServiceProvider::
+    // configureApiRateLimiting()) — a message is the route that can
+    // trigger a real outbound call to a paid hosted provider.
+    Route::prefix('assistant')->name('assistant.')->middleware('throttle:ai')->group(function () {
         Route::post('conversations', [AssistantController::class, 'store'])->name('conversations.store');
         Route::post('conversations/{conversation}/messages', [AssistantController::class, 'message'])->name('messages.store');
     });
@@ -175,8 +193,12 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [PluginController::class, 'index'])->name('index');
         Route::get('discover', [PluginController::class, 'discover'])->name('discover');
         Route::get('upload', [PluginController::class, 'uploadForm'])->name('upload');
-        Route::post('upload', [PluginController::class, 'uploadStore'])->name('upload.store');
-        Route::post('upload/{token}/propose', [PluginController::class, 'uploadPropose'])->name('upload.propose');
+        // Task 20: bounds abuse of the (already size/time-bounded, see
+        // config/craftkeeper.php `plugins.*`) quarantine/hash pipeline
+        // with its own 'uploads' rate limit (App\Providers\
+        // AppServiceProvider::configureApiRateLimiting()).
+        Route::post('upload', [PluginController::class, 'uploadStore'])->middleware('throttle:uploads')->name('upload.store');
+        Route::post('upload/{token}/propose', [PluginController::class, 'uploadPropose'])->middleware('throttle:uploads')->name('upload.propose');
         Route::post('install', [PluginController::class, 'proposeInstall'])->name('install');
 
         Route::get('operations/{operation}', [PluginController::class, 'operation'])->name('operations.show');

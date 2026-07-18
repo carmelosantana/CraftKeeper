@@ -17,6 +17,13 @@ services:
       QUEUE_CONNECTION: database
       CACHE_STORE: database
       SESSION_DRIVER: database
+      # Task 20: set this to your reverse proxy/load balancer's address
+      # (or the Docker network CIDR it connects from) so
+      # $request->isSecure() correctly reflects X-Forwarded-Proto from a
+      # TLS-terminating proxy in front of this container — required for
+      # secure session cookies and the Strict-Transport-Security header
+      # to activate. See .env.example's own TRUSTED_PROXIES comment.
+      # TRUSTED_PROXIES: "*"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/up"]
       interval: 30s
