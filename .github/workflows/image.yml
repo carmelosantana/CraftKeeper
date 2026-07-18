@@ -155,9 +155,18 @@ jobs:
       # consumer (smoke-test, scan, sign-and-attest, publish-moving-tags).
       # Compute the full reference here, in a step, where `env`/shell
       # variables ARE available, and expose it as a step output instead.
+      # The digest is passed through `env:` rather than interpolated directly
+      # into the run block. zizmor's template-injection audit flags any
+      # `${{ ... }}` expanded into shell source, because the expansion happens
+      # before the shell sees the line. This one is not attacker-controllable
+      # (docker/build-push-action produces the digest), but routing it through
+      # an environment variable removes the class of bug entirely instead of
+      # suppressing the finding, and costs nothing.
       - name: Compute digest-pinned image reference
         id: ref
-        run: echo "image_ref=${IMAGE}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "image_ref=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         env:

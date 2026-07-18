@@ -12,9 +12,23 @@ return [
     | Local development and the test suite override BROADCAST_CONNECTION to
     | "log"/"null" respectively so neither needs a running Reverb server.
     |
+    | The FALLBACK here is "log", not "reverb", and that matters: realtime
+    | streaming is optional in CraftKeeper, but routes/channels.php calls
+    | Broadcast::channel() during application boot. With a "reverb" fallback
+    | and no REVERB_* credentials present, the driver constructs Pusher with
+    | a null auth key and throws before the framework finishes booting — so
+    | the app fails to start at all, rather than merely losing streaming.
+    | That took down `composer install` itself (its post-autoload-dump hook
+    | runs `artisan package:discover`) in any environment without a .env,
+    | including CI and a plain `docker run` of the published image.
+    |
+    | Reverb is therefore opt-in: set BROADCAST_CONNECTION=reverb together
+    | with the REVERB_* credentials. Anything that wants realtime must say
+    | so explicitly — see docker-compose.integration.yml.
+    |
     */
 
-    'default' => env('BROADCAST_CONNECTION', 'reverb'),
+    'default' => env('BROADCAST_CONNECTION', 'log'),
 
     /*
     |--------------------------------------------------------------------------

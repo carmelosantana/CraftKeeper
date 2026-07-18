@@ -93,6 +93,10 @@ services:
       # boot-time 500 on every request ship undetected. The minimal path is
       # covered by ci.yml's "Boot the image with only compose.example.yml's
       # documented env" step. Keep both.
+      # Required explicitly: config/broadcasting.php falls back to "log", so
+      # supplying REVERB_* credentials alone would NOT enable Reverb. This
+      # stack previously relied on that fallback being "reverb"; it is not.
+      BROADCAST_CONNECTION: reverb
       REVERB_APP_ID: "100001"
       REVERB_APP_KEY: "integrationstackkey"
       REVERB_APP_SECRET: "integrationstacksecret"
