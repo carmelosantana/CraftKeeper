@@ -252,3 +252,25 @@ it('returns an empty reconciliation, not a crash, when the plugins directory doe
         ->and($result->removals)->toBe([])
         ->and($result->changes)->toBe([]);
 });
+
+/*
+|--------------------------------------------------------------------------
+| A directory named like a JAR file (NotARegularFile) is skipped
+|--------------------------------------------------------------------------
+*/
+
+it('skips a directory named like a .jar file instead of crashing the whole reconciliation', function () {
+    // A directory literally named "weird.jar" will pass the initial
+    // filename filter, but MinecraftPath::reverifyContainment() throws
+    // NotARegularFile when it discovers it's not a regular file —
+    // reconcile() must skip it, not let that exception take down every
+    // other plugin in the same scan.
+    mkdir($this->minecraftRoot.'/plugins/weird.jar');
+    putPluginJar($this->minecraftRoot, 'Essentials.jar', 'Essentials');
+
+    $result = $this->service->reconcile();
+
+    expect($result->additions)->toHaveCount(1)
+        ->and($result->additions[0]->name)->toBe('Essentials')
+        ->and(PluginInstallation::query()->count())->toBe(1);
+});

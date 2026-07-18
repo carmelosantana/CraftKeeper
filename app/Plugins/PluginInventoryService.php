@@ -2,6 +2,8 @@
 
 namespace App\Plugins;
 
+use App\Filesystem\Exceptions\MinecraftRootUnavailable;
+use App\Filesystem\Exceptions\NotARegularFile;
 use App\Filesystem\Exceptions\UnsafeMinecraftPath;
 use App\Filesystem\MinecraftPath;
 use App\Models\PluginArtifact;
@@ -184,16 +186,18 @@ final class PluginInventoryService
 
             try {
                 $path = MinecraftPath::fromUserInput('plugins/'.$onDiskName);
-            } catch (UnsafeMinecraftPath) {
-                // Defensive only, mirroring App\Config\ConfigDiscoveryService's
-                // identical guard: the walk above already proved this
-                // entry resolves inside the root, so this should never
-                // trigger in practice. It's still caught rather than left
-                // to propagate, because the ONE thing worse than skipping
-                // one oddly-named file (e.g. a literal "con.jar" — a
-                // reserved device name MinecraftPath always refuses) is
-                // letting it crash reconciliation for every OTHER plugin
-                // in the same scan.
+                $inspection = $this->inspector->inspect($path);
+            } catch (UnsafeMinecraftPath|NotARegularFile|MinecraftRootUnavailable) {
+                // Defensive isolation: the walk above already proved this
+                // entry should resolve inside the root. UnsafeMinecraftPath
+                // never triggers in practice (see below). But NotARegularFile
+                // and MinecraftRootUnavailable can: a race condition between
+                // the filetype check and path resolution, or a directory/FIFO/
+                // socket somehow lingering in the plugins/ tree, must not crash
+                // reconciliation for every OTHER plugin in the same scan. This
+                // exception guard ensures exactly one bad entry is skipped
+                // (e.g. a literal "con.jar" reserved device name, or a directory
+                // named "weird.jar") rather than aborting the whole inventory.
                 continue;
             }
 
@@ -201,7 +205,7 @@ final class PluginInventoryService
                 logicalRelativePath: 'plugins/'.$logical,
                 onDiskRelativePath: 'plugins/'.$onDiskName,
                 enabled: $enabled,
-                inspection: $this->inspector->inspect($path),
+                inspection: $inspection,
             );
         }
 
