@@ -3,6 +3,7 @@
 use App\Models\ConfigRevision;
 use App\Models\Operation;
 use App\Models\User;
+use App\Operations\InputRedactor;
 use App\Operations\OperationService;
 use App\Operations\OperationStatus;
 use Illuminate\Support\Collection;
@@ -222,6 +223,160 @@ it('never adds every untouched schema field\'s default value when the real guide
     operationsService()->execute($operation->id);
 
     expect(file_get_contents($this->minecraftRoot.'/server.properties'))->toBe("motd=hi\nallow-flight=true\n");
+});
+
+/*
+|--------------------------------------------------------------------------
+| The secret round-trip in STRUCTURED mode
+|--------------------------------------------------------------------------
+|
+| reconcileStructured() (ConfigController::reconcileStructured()) achieves
+| the same "never write the sentinel" guarantee as guided mode, but by a
+| different mechanism: it diffs the submitted tree against a REDACTED
+| baseline rather than checking each field for MASK explicitly. These
+| mirror the guided-mode round-trip tests above to lock that mechanism in
+| place too.
+*/
+
+it('never writes the literal mask sentinel to disk when a secret field is left unchanged in structured mode', function () {
+    file_put_contents($this->minecraftRoot.'/server.properties', "rcon.password=original-secret\nmotd=hi\n");
+
+    $response = $this->actingAs($this->admin)->post('/configurations/server.properties', [
+        'mode' => 'structured',
+        'base_sha256' => hash('sha256', "rcon.password=original-secret\nmotd=hi\n"),
+        'values' => [
+            'rcon.password' => '••••••', // untouched sentinel
+            'motd' => 'updated motd',
+        ],
+    ]);
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page->component('config/Edit')->has('proposal'));
+
+    $operation = Operation::query()->sole();
+    operationsService()->approve($operation->id, $this->admin);
+    $executed = operationsService()->execute($operation->id);
+
+    expect($executed->status)->toBe(OperationStatus::Succeeded);
+
+    $written = file_get_contents($this->minecraftRoot.'/server.properties');
+    expect($written)->toContain('rcon.password=original-secret')
+        ->not->toContain('••••••')
+        ->toContain('motd=updated motd');
+});
+
+it('updates a secret value via structured mode when the operator types a real new one', function () {
+    file_put_contents($this->minecraftRoot.'/server.properties', "rcon.password=original-secret\nmotd=hi\n");
+
+    $response = $this->actingAs($this->admin)->post('/configurations/server.properties', [
+        'mode' => 'structured',
+        'base_sha256' => hash('sha256', "rcon.password=original-secret\nmotd=hi\n"),
+        'values' => [
+            'rcon.password' => 'brand-new-secret',
+            'motd' => 'hi',
+        ],
+    ]);
+
+    $response->assertOk();
+    $operation = Operation::query()->sole();
+
+    operationsService()->approve($operation->id, $this->admin);
+    operationsService()->execute($operation->id);
+
+    expect(file_get_contents($this->minecraftRoot.'/server.properties'))->toContain('rcon.password=brand-new-secret');
+});
+
+/*
+|--------------------------------------------------------------------------
+| The secret round-trip in SOURCE mode
+|--------------------------------------------------------------------------
+|
+| reconcileSource() (ConfigController::reconcileSource()) achieves the same
+| guarantee yet again by a third mechanism: it parses both the REDACTED
+| baseline text and the operator's submitted text, then diffs their located
+| scalar leaves by dotted path. These mirror the guided-mode round-trip
+| tests above to lock that mechanism in place too.
+*/
+
+it('never writes the literal mask sentinel to disk when a secret field is left unchanged in source mode', function () {
+    $original = "rcon.password=original-secret\nmotd=hi\n";
+    file_put_contents($this->minecraftRoot.'/server.properties', $original);
+
+    // Start from the exact redacted text the browser would have shown the
+    // operator in the source tab, then change only the non-secret line —
+    // the secret span stays exactly as delivered, i.e. still the sentinel.
+    $edit = $this->actingAs($this->admin)->get('/configurations/server.properties');
+    $edit->assertOk();
+    $baselineSource = $edit->inertiaProps('source.contents');
+
+    expect($baselineSource)->toContain('••••••')->not->toContain('original-secret');
+
+    $submittedSource = str_replace('motd=hi', 'motd=updated motd', $baselineSource);
+    expect($submittedSource)->toContain('••••••');
+
+    $response = $this->actingAs($this->admin)->post('/configurations/server.properties', [
+        'mode' => 'source',
+        'base_sha256' => hash('sha256', $original),
+        'source' => $submittedSource,
+    ]);
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page->component('config/Edit')->has('proposal'));
+
+    $operation = Operation::query()->sole();
+    operationsService()->approve($operation->id, $this->admin);
+    $executed = operationsService()->execute($operation->id);
+
+    expect($executed->status)->toBe(OperationStatus::Succeeded);
+
+    $written = file_get_contents($this->minecraftRoot.'/server.properties');
+    expect($written)->toContain('rcon.password=original-secret')
+        ->not->toContain('••••••')
+        ->toContain('motd=updated motd');
+});
+
+it('updates a secret value via source mode when the operator types a real new one', function () {
+    $original = "rcon.password=original-secret\nmotd=hi\n";
+    file_put_contents($this->minecraftRoot.'/server.properties', $original);
+
+    $response = $this->actingAs($this->admin)->post('/configurations/server.properties', [
+        'mode' => 'source',
+        'base_sha256' => hash('sha256', $original),
+        'source' => "rcon.password=brand-new-secret\nmotd=hi\n",
+    ]);
+
+    $response->assertOk();
+    $operation = Operation::query()->sole();
+
+    operationsService()->approve($operation->id, $this->admin);
+    operationsService()->execute($operation->id);
+
+    expect(file_get_contents($this->minecraftRoot.'/server.properties'))->toContain('rcon.password=brand-new-secret');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Secret schema defaults never leak to the browser
+|--------------------------------------------------------------------------
+*/
+
+it('masks a secret field\'s schema default instead of sending the raw value in guided mode', function () {
+    file_put_contents($this->minecraftRoot.'/server.properties', "motd=hi\n");
+
+    $edit = $this->actingAs($this->admin)->get('/configurations/server.properties');
+    $edit->assertOk();
+
+    $fields = collect($edit->inertiaProps('guided.groups'))->flatMap(fn (array $group) => $group['fields']);
+
+    $rconField = $fields->firstWhere('path', 'rcon.password');
+    expect($rconField)->not->toBeNull()
+        ->and($rconField['secret'])->toBeTrue()
+        ->and($rconField['default'])->toBe(InputRedactor::MASK);
+
+    // A non-secret field's schema default is unaffected — only secret
+    // fields are guarded.
+    $motdField = $fields->firstWhere('path', 'motd');
+    expect($motdField['default'])->toBe('A Minecraft Server');
 });
 
 /*

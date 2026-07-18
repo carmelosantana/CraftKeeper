@@ -389,7 +389,11 @@ class ConfigController extends Controller
      * this is the one line that decides whether a secret leaks into the
      * browser in guided mode: a schema-secret field ALWAYS gets
      * InputRedactor::MASK here, never `$node->value`, regardless of what
-     * the file actually contains.
+     * the file actually contains. `default` gets the identical guard: a
+     * schema-secret field's raw `$field->default` must never reach the
+     * browser either, even though every current schema secret happens to
+     * default to `""` today — the guard is enforced unconditionally so a
+     * future schema with a non-empty secret default can't leak it.
      *
      * @return array<string, mixed>|null
      */
@@ -404,13 +408,14 @@ class ConfigController extends Controller
         foreach ($schema->fields as $field) {
             $node = $currentParsed->node($field->path);
             $currentValue = $field->secret ? InputRedactor::MASK : ($node !== null ? $node->value : $field->default);
+            $default = $field->secret ? InputRedactor::MASK : $field->default;
 
             $byGroup[$this->groupTitle($field->path)][] = [
                 'path' => $field->path,
                 'type' => $field->type->value,
                 'title' => $field->title,
                 'description' => $field->description,
-                'default' => $field->default,
+                'default' => $default,
                 'restartImpact' => $field->restartImpact->value,
                 'risk' => $field->risk->value,
                 'allowedValues' => $field->allowedValues,
