@@ -84,4 +84,29 @@ return [
         'rollback_retention_days' => (int) env('PLUGIN_ROLLBACK_RETENTION_DAYS', 30),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Optional AI Assistant (Task 16)
+    |--------------------------------------------------------------------------
+    |
+    | AI is entirely optional: App\Ai\AiManager::provider() returns null
+    | whenever no provider is configured, or the configured one fails a
+    | health check within these bounds — an outage here must never affect
+    | /up, configuration, plugins, the API, or MCP. Health checks (and the
+    | HTTP client every App\Ai\Providers\* constructs by default) use a
+    | 2-second CONNECT timeout and a 5-second RESPONSE timeout, with no
+    | request-path retries (carmelosantana/php-agents never wraps its
+    | Symfony HttpClient in a RetryableHttpClient, so "no retries" is
+    | already the default — these two settings are the only knobs that
+    | matter). Provider connection details themselves (base URL, model,
+    | and — for the hosted provider only — an API key) live in the
+    | Setting/Secret store, not here — see App\Models\AiProviderConfiguration.
+    |
+    */
+
+    'ai' => [
+        'connect_timeout_seconds' => (float) env('AI_CONNECT_TIMEOUT_SECONDS', 2.0),
+        'response_timeout_seconds' => (float) env('AI_RESPONSE_TIMEOUT_SECONDS', 5.0),
+    ],
+
 ];

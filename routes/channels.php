@@ -27,3 +27,13 @@ Broadcast::channel('operations.{id}', fn (User $user, string $id): bool => true)
 | callback ever runs.
 */
 Broadcast::channel('server.console', fn (User $user): bool => true);
+
+/*
+| Task 16: one PRIVATE channel per AI conversation, streaming partial
+| answer text and tool progress (App\Events\AiAssistantStreamEvent) plus
+| the final persisted message (App\Events\AiMessageStreamed). Same
+| single-admin reasoning as every other channel above — CraftKeeper never
+| has more than one App\Models\User, so "an authenticated session exists"
+| is the entire authorization model, admin-only by construction.
+*/
+Broadcast::channel('ai.conversations.{id}', fn (User $user, string $id): bool => true);

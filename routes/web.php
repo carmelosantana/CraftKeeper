@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityController;
+use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HealthController;
@@ -92,6 +93,15 @@ Route::middleware(['auth'])->group(function () {
     });
 
     Route::get('activity', [ActivityController::class, 'index'])->name('activity');
+
+    // Task 16: the optional AI assistant. AI being disabled/unavailable
+    // never affects any other route in this group — see App\Ai\AiManager
+    // and tests/Feature/Ai/AiUnavailableTest.php.
+    Route::get('assistant', [AssistantController::class, 'index'])->name('assistant');
+    Route::prefix('assistant')->name('assistant.')->group(function () {
+        Route::post('conversations', [AssistantController::class, 'store'])->name('conversations.store');
+        Route::post('conversations/{conversation}/messages', [AssistantController::class, 'message'])->name('messages.store');
+    });
 
     // Task 9: configuration inventory + editor. Literal-prefixed routes
     // (operations/*, revisions/*, history/*) are registered BEFORE the two
