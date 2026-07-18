@@ -2449,3 +2449,140 @@ all four spec files — `configuration`, `design-system`, `onboarding`,
 and this task's own `server-operations` — 30/30, confirming the
 `AppShell.tsx`/`StatusBadge.tsx` accessibility fixes above didn't
 regress any earlier task's suite).
+
+## Task 13 — Plugin Inspection, Inventory, and Compatibility
+
+**The "declared size lies" zip-bomb variant is real against this
+project's installed ext-zip, and was empirically confirmed, not assumed,
+before `App\Plugins\JarInspector` was written to defend against it.** A
+hand-crafted archive can write a small "uncompressed size" into both its
+local file header (offset 22, 4 bytes LE) and its central directory
+record (offset 24, 4 bytes LE) for an entry, while leaving the entry's
+real DEFLATE-compressed bytes untouched. `ZipArchive::statIndex()['size']`
+faithfully reports the patched lie — but DEFLATE is self-terminating (an
+end-of-block marker inside the compressed bitstream itself, independent
+of any length field), so `ZipArchive::getStream()` + a `fread()` loop
+still yields every real decompressed byte, ignoring the lie entirely.
+Proven interactively: a 400 KB real payload patched to declare a 50-byte
+size still produced 270,336+ streamed bytes before the read was
+manually aborted. This is why `JarInspector` enforces TWO independent
+caps rather than one — see its class docblock — and why
+`Tests\fixtures\plugins\JarFixtureBuilder::writeLyingSizeEntryTo()`
+exists: it reproduces this exact byte-patching technique so
+`JarInspectorTest`'s "aborts a metadata read whose declared size lies…"
+case exercises the real pipeline end-to-end, not just the declared-size
+check in isolation. The entry-count cap (10,000) and the traversal-name
+non-issue (entries are only ever looked up by exact literal name via
+`locateName()`; `extractTo()` is never called, so a hostile name has no
+write destination to redirect) are both argued and tested the same way —
+see `JarInspectorTest.php`'s "ignores traversal-… entries" case, which
+diffs the full file listing of the temp Minecraft root before/after
+inspecting a hostile archive to prove nothing was written anywhere.
+
+**Foreign-platform detection (`velocity-plugin.json`/`bungee.yml`) was
+added as a genuine, safe evidence source beyond the brief's literal
+step-by-step text, to satisfy ambiguity resolution #3's "source-platform
+declarations… (paper/spigot/velocity)" requirement without violating its
+own "don't infer Compatible from valid metadata" rule.** Real Paper/
+Bukkit `plugin.yml`/`paper-plugin.yml` carry no explicit
+"platform: paper" field to check, so the mere PRESENCE of either file is
+recorded only as informational evidence (`supportsCompatibility: null`)
+— it is necessary to identify a plugin at all but never itself moves the
+verdict toward `Compatible`. The genuinely checkable, safe-to-act-on
+signal is the ABSENCE of Paper/Bukkit metadata combined with the
+PRESENCE of a Velocity or BungeeCord proxy-plugin descriptor: that
+combination is real negative evidence ("this JAR is for a different
+platform entirely") and is the one case `PluginCompatibilityService`
+returns `Incompatible` from metadata alone, tested explicitly in both
+`JarInspectorTest` (`PluginInspectionIssue::ForeignPlatform`) and
+`PluginCompatibilityServiceTest`.
+
+**`PluginCompatibilityService`'s central guardrail — Unknown stays
+Unknown absent positive evidence — is enforced by never setting its
+internal `$compatible` flag from "metadata exists" or "zero dependencies
+declared," only from a POSITIVELY confirmed satisfied hard dependency or
+a POSITIVELY confirmed api-version match.** `PluginCompatibilityServiceTest`
+asserts this directly (`'never infers Compatible merely because a JAR
+has valid, readable metadata'` and `'stays Unknown when there is no
+dependency or api-version evidence at all'`) as the brief's own escalation
+concern demanded. Verdict precedence is
+Incompatible > Warning > Compatible > Unknown (a missing hard dependency
+always wins over a merely-missing soft one; a real Warning-worthy signal
+is surfaced even alongside an otherwise-satisfied hard dependency, rather
+than being hidden behind a plain Compatible).
+
+**Plugin identity across enable/disable is the LOGICAL (always
+enabled-form) relative path, not the raw on-disk filename.**
+`plugin_installations.relative_path` always stores e.g.
+"plugins/EssentialsX.jar" even while the file itself currently sits at
+"...jar.disabled" — `enabled` carries which form is actually on disk.
+This means a plugin toggling between enabled/disabled BY ANY MEANS (not
+just a future Task 15 lifecycle operation — a human renaming the file by
+hand works identically) is recognized by `PluginInventoryService::reconcile()`
+as the same installation changing state, never a spurious
+removal-then-addition pair that would lose its provenance/compatibility
+history. The one edge case this identity scheme cannot silently resolve
+— both the enabled AND `.disabled` form present on disk simultaneously —
+is deliberately NOT guessed at: `reconcile()` reports it as a
+`pathConflicts` entry and leaves any existing `PluginInstallation` row at
+that logical path untouched (neither updated nor marked missing) until a
+human resolves the duplicate on disk. Tested in
+`PluginInventoryServiceTest`.
+
+**Removals never delete a `PluginInstallation` row — `missing_since` is
+set instead, and cleared automatically on reappearance.** This preserves
+provenance/compatibility history across a file being moved away and back
+(by an admin, a backup restore, or Task 15's own future lifecycle
+operations), consistent with the brief's "preserve manual provenance"
+instruction read as a general "don't destroy what CraftKeeper didn't
+directly cause" principle, not just a literal statement about the
+`provenance` column alone.
+
+**Provenance is preserved by construction, not by a special case:** only
+`resolveProvenanceForNew()`/`resolveProvenanceForChange()` ever choose a
+`provenance` value, and both only override the existing/default value
+when a checksum EXACTLY matches a `plugin_artifacts` row's `sha256` (a
+table this task only ever reads, never writes — Task 14/15 populate it).
+Every other path — unchanged checksum, changed checksum with no matching
+artifact, brand-new discovery — falls through to keeping whatever
+provenance was already there, or `Manual` for a first-ever discovery.
+`PluginInventoryServiceTest` seeds a `PluginArtifact` row directly (since
+nothing in this task creates one for real) to prove the exact-match
+mechanism works ahead of Task 14 existing.
+
+**Files beyond the brief's literal list, and why (same pattern Tasks
+5/10/11/12 already established for this).** `App\Plugins\PluginDependencyGraph`/
+`PluginDependencyNode` (the brief's own "dependency graph" Stable
+Interface artifact, homeless without them); `App\Plugins\
+PluginCompatibilityState`/`PluginCompatibilityEvidence`/
+`PluginCompatibilityAssessment` (the typed verdict-plus-evidence shape
+`PluginCompatibilityService::evaluate()` returns); `App\Plugins\
+PluginInspectionIssue`/`PluginInspectionDiagnostic` (the typed-diagnostic
+vocabulary every hostile/malformed `JarInspector` input resolves to,
+mirroring `App\Config\ConfigDiagnostic`'s role for the config domain);
+`App\Plugins\PluginProvenance` (the plan's provenance vocabulary,
+scoped to the values a plugin installation can actually carry);
+`App\Plugins\DiscoveredPlugin`/`PluginReconciliation` (the per-file and
+aggregate report shapes `PluginInventoryService::reconcile()` returns);
+and `tests/Unit/Plugins/PluginCompatibilityServiceTest.php`/
+`PluginDependencyGraphTest.php` (beyond the brief's two named test
+files, covering the compatibility guardrail and graph construction in
+isolation from `JarInspector`/`PluginInventoryService`).
+
+**Gates, run for real:** `php artisan test tests/Unit/Plugins
+tests/Feature/Plugins` (44 tests: 33 unit — 17 `JarInspectorTest`
+including every hostile-archive case, 12 `PluginCompatibilityServiceTest`,
+4 `PluginDependencyGraphTest` — plus 11 `PluginInventoryServiceTest`
+feature tests; all passing, 0 risky after removing a redundant
+`throwsNoExceptions()` chain that PHPUnit flagged when combined with
+explicit `expect()` assertions in the same test), `composer test` (556
+tests total across the whole suite — the prior 512 plus this task's 44
+new tests — 546 passed, 10 pre-existing skips, 0 new failures; PHPStan
+level 7 clean after fixing two real dead-code findings it caught
+correctly — an `is_int()` check on a value PHPStan proved was already
+narrowed to always-int, and two unnecessary-`?->` findings resolved by
+switching to the `instanceof`-guard idiom `App\Models\Secret::get()`
+already established elsewhere in this codebase, rather than suppressing
+either finding; Pint clean), `npm run typecheck` (clean, unaffected —
+this task touched no TypeScript), `npm run test` (Vitest, 14/14,
+unaffected), `npm run build` (succeeds, unaffected bundle).
