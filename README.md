@@ -21,6 +21,22 @@ curl -O https://raw.githubusercontent.com/carmelosantana/craftkeeper/main/compos
 docker compose -f compose.example.yml up -d
 ```
 
+### Don't have a server yet?
+
+The primary supported setup runs CraftKeeper next to
+[Legendary Java Minecraft (Geyser + Floodgate)](https://github.com/TheRemote/Legendary-Java-Minecraft-Geyser-Floodgate),
+a Paper server with Bedrock crossplay — both containers sharing one volume:
+
+```bash
+curl -O https://raw.githubusercontent.com/carmelosantana/craftkeeper/main/compose.legendary.yml
+```
+
+That pairing needs two one-time fixes (a supplementary group and one
+`chmod`) or CraftKeeper will read your configuration but fail to save
+changes. Follow
+[`docs/installation/legendary-minecraft.md`](docs/installation/legendary-minecraft.md)
+rather than starting it blind.
+
 Then open `http://localhost:8080` (or your configured `APP_URL`) to
 complete first-run onboarding — it creates exactly one administrator
 account, checks the mounted Minecraft directory, and optionally
@@ -32,6 +48,7 @@ deploying behind [Dokploy](https://dokploy.com/).
 
 ## Documentation
 
+- [Installation: Legendary Java Minecraft (Geyser + Floodgate)](docs/installation/legendary-minecraft.md)
 - [Installation: Dokploy](docs/installation/dokploy.md)
 - [Installation: Docker Compose](docs/installation/docker-compose.md)
 - [Operations: RCON configuration](docs/operations/rcon.md)

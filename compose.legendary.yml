@@ -1,0 +1,80 @@
+# CraftKeeper alongside Legendary Java Minecraft (Geyser + Floodgate).
+#
+# Full walkthrough, including the two one-time fixes this file depends on:
+#   docs/installation/legendary-minecraft.md
+#
+# Before `docker compose up`, set:
+#   export CRAFTKEEPER_APP_KEY="base64:$(head -c 32 /dev/urandom | base64)"
+#
+# After the minecraft service has seeded its data directory, apply both
+# one-time fixes (they persist across restarts):
+#   docker exec -u 0 minecraft chmod 775 /minecraft
+#   docker exec minecraft id -g minecraft     # confirm this matches group_add
+# and enable RCON in /minecraft/server.properties. See the doc.
+
+services:
+  minecraft:
+    image: 05jchambers/legendary-minecraft-geyser-floodgate:latest
+    container_name: minecraft
+    restart: unless-stopped
+    ports:
+      - "25565:25565"       # Java edition
+      - "19132:19132/udp"   # Bedrock edition (Geyser)
+    volumes:
+      - minecraft:/minecraft
+    environment:
+      MaxMemory: "4096"
+      TZ: America/Denver
+    # RCON (25575) is deliberately NOT published to the host. CraftKeeper
+    # reaches it over this compose network, so the port stays private.
+
+  craftkeeper:
+    image: ghcr.io/carmelosantana/craftkeeper:latest
+    container_name: craftkeeper
+    restart: unless-stopped
+    depends_on:
+      - minecraft
+    ports:
+      - "8080:8080"
+    volumes:
+      - minecraft:/minecraft          # the SAME volume the server uses
+      - craftkeeper_data:/data
+    # Legendary runs the server as a `minecraft` user (uid/gid 999 on the
+    # current image) and its files are group-writable (664/775). CraftKeeper
+    # runs as uid 1000, so without this supplementary group every write fails
+    # with permission denied while reads keep working — a confusing
+    # half-working state. The GID is assigned by `useradd -r` and is not
+    # pinned by the image, so verify it rather than trusting 999:
+    #   docker exec minecraft id -g minecraft
+    group_add:
+      - "999"
+    environment:
+      APP_URL: http://localhost:8080
+      APP_KEY: ${CRAFTKEEPER_APP_KEY}
+      MINECRAFT_ROOT: /minecraft
+      DATA_ROOT: /data
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/database.sqlite
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      # Realtime streaming is optional; `log` disables it. To enable, set
+      # this to `reverb` and supply REVERB_APP_ID/KEY/SECRET.
+      BROADCAST_CONNECTION: log
+      # RCON credentials are NOT set here. CraftKeeper keeps the host/port as
+      # settings and the password in its encrypted secret store — enter them
+      # in onboarding's RCON step (host `minecraft`, port `25575`), which
+      # tests the connection on save.
+      #
+      # Task 20: if you put a TLS-terminating proxy in front of this, set
+      # TRUSTED_PROXIES so secure cookies and HSTS activate correctly.
+      # TRUSTED_PROXIES: "*"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  minecraft:
+  craftkeeper_data:
