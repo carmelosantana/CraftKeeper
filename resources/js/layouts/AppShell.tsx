@@ -165,7 +165,24 @@ function ShellNav({
                                 ? {
                                       backgroundColor:
                                           'color-mix(in srgb, var(--ck-accent) 16%, transparent)',
-                                      color: 'var(--ck-accent-hover)',
+                                      // --ck-text, not --ck-accent-hover:
+                                      // Task 12's e2e axe scan (the first
+                                      // one to actually reach a desktop
+                                      // view with an active primary-nav
+                                      // item — configuration.spec.ts and
+                                      // design-system.spec.ts only ever
+                                      // axe-scan the mobile drawer or a
+                                      // non-nav-item route) found
+                                      // --ck-accent-hover text on this
+                                      // ~16%-tint background measures
+                                      // 4.45:1, under the 4.5:1 AA
+                                      // threshold. --ck-text holds
+                                      // ~10.7:1 on the same background —
+                                      // the same class of fix already
+                                      // documented for DiffReview/
+                                      // ServerIdentityCard in
+                                      // docs/architecture/decisions.md.
+                                      color: 'var(--ck-text)',
                                       fontWeight: 600,
                                   }
                                 : { color: 'var(--ck-text-2)', fontWeight: 500 }

@@ -2088,3 +2088,364 @@ window...") that writes a straggler line to the pre-rotation file,
 rotates, and asserts that line is genuinely absent afterward — pinning
 the actual behavior so a future change that silently makes this worse (or
 better) shows up as a test change, not a surprise.
+
+## Task 12 — Overview, Server, Players, Console, Logs, and Activity UI
+
+**`pestphp/pest-plugin-browser` was installed and tried for real, then
+removed — the brief's own Step 1 test is written in Pest v4's native
+browser-testing syntax, not a metaphor for "some Browser test."** The
+brief's literal test (`visit()`, `->type()`, `->press()`,
+`->assertNoJavascriptErrors()`) is verbatim Pest v4 browser testing
+(`pestphp/pest-plugin-browser`, a real, current package — confirmed on
+Packagist, compatible with this repo's `pestphp/pest ^4.7`), which drives
+a real Playwright-controlled Chromium via a Node bridge server the
+package launches itself. It was `composer require --dev`'d and a minimal
+smoke test (`visit('/design-system')->assertSee(...)->assertNoJavascriptErrors()`,
+no CraftKeeper-specific code) was run against it directly in this
+sandbox — the underlying `node_modules/.bin/playwright run-server`
+process (confirmed listening) never returned control to PHP; three
+separate attempts (with and without `--stop-on-failure`, with a fresh
+poc test) all hung past a 2-minute timeout with zero output, then had to
+be killed. `npx playwright --version` (1.61.1) already exceeds the
+package's own minimum (1.59.1), and this exact sandbox has separately,
+repeatedly proven it CAN drive real Chromium via plain `@playwright/test`
+(Tasks 3/4/9's own e2e suites, and this task's own
+`tests/e2e/server-operations.spec.ts` below) — so this reads as an
+environment-specific limitation of `pest-plugin-browser`'s own Amp-based
+async Node<->PHP<->Chromium bridge in this particular sandbox, not a
+general product or Playwright problem. The dependency was removed again
+(`composer remove --dev pestphp/pest-plugin-browser`; `composer.json`/
+`composer.lock` are clean of it) rather than left half-wired. This is the
+same class of reconciliation Task 9 already made explicit for its own
+`tests/Browser/ConfigEditorTest.php` (no Dusk dependency existed at all,
+so that one was unreachable from the start; this one exists and installs
+cleanly, but doesn't run in this sandbox) — `tests/e2e/
+server-operations.spec.ts` (Playwright TypeScript, `npm run e2e`)
+reproduces the brief's Step 1 interaction verbatim (type "stop" into
+`[data-testid=command-input]`/`[data-test=command-input]` — both
+attributes are present on the real input specifically so this literal
+selector still resolves — press "Compose command", see "Stops the
+Minecraft server." and "Approval required", assert zero `pageerror`
+events) and is the file this task's `git add`/commit actually includes
+in place of `tests/Browser/ServerOperationsTest.php`. `php artisan test
+tests/Feature tests/Browser` therefore also does not run as literally
+written (PHPUnit errors "Test file tests/Browser not found" since the
+directory doesn't exist) — `php artisan test tests/Feature` is the
+gate that's actually green, and it is.
+
+**The elevated-command gate is a strict four-step pipeline with no
+shortcut between any two non-adjacent steps: compose (read-only preview)
+-> propose (creates a Proposed Operation, still zero RCON contact) ->
+approve (a fresh, separate POST — the ONLY step that can lead to
+`RconCommandHandler`/`ServerStopHandler` actually running) -> execute.**
+`App\Http\Controllers\ConsoleController::compose()` calls
+`App\Console\CommandPolicy::classify()` (Task 10's own, untouched,
+default-deny classifier) and a new small presentation-only lookup,
+`App\Console\CommandConsequences::describe()`, and returns a plain
+`composePreview` array — no `Operation` row, no RconClient touched. Only
+`propose()` calls `App\Console\RconCommandService::proposeCommand()`
+(Elevated) or, for a composed command that normalizes to exactly "stop",
+`App\Operations\OperationService::propose(OperationRequest::serverStop())`
+directly (see the next entry). Only `approve()` calls
+`OperationService::approve()` + `::execute()` — human-only by type at
+`OperationService::approve()`'s own signature (Task 5), unchanged by this
+task. This was proven, not just designed: `tests/Feature/Http/
+ConsoleControllerTest.php` binds a `RconClient` double
+(`bindPoisonedRconClient()`) that throws the instant `execute()` is
+called, over the container's real `AppServiceProvider` binding, for
+every compose/propose/reject test — if any of those paths ever reached
+the transport, the test would fail with that exception, not a normal
+assertion failure. A second test explicitly re-binds the poisoned client
+*between* propose() and approve() to prove the Proposed operation is
+still untouched, then swaps in a real (faked-transport) client only for
+the actual approval click.
+
+**A composed command that normalizes to exactly "stop" is routed to
+`OperationType::ServerStop`/`ServerStopHandler`, not the generic
+`OperationType::RconCommand`/`RconCommandHandler` — a real, TDD-caught
+bug, not a stylistic choice.** The first version of
+`ConsoleController::propose()` always called
+`RconCommandService::proposeCommand()`, which unconditionally produces
+`OperationType::RconCommand` and, on execute, sends the operator's raw
+text (here, literally `"stop"`) straight over RCON via
+`RconCommandHandler` — completely bypassing `ServerStopHandler`'s
+graceful "save-all flush THEN stop" sequence (Task 10). A test asserting
+`$operation->type` for a composed `"stop"` command caught this
+immediately (expected `ServerStop`, got `RconCommand`). Fixed with a
+narrow, explicit check (`isServerStopCommand()`, `strtolower(normalize($command))
+=== 'stop'`) in `propose()` only — `compose()`'s preview and
+`CommandConsequences`'s lookup already produce the correct copy for
+"stop" regardless (both key off `CommandPolicy::category()`, the first
+token), so only the operation-creation branch needed the fix. This is
+exactly what the task brief's own Interfaces section names as the two
+elevated flows Console composes ("rcon.command/server.stop via
+propose→human-approve→execute") — not an incidental detail.
+
+**"Safe" predefined actions and a manually-typed Safe command share ONE
+execution primitive, `RconCommandService::runSafeCommand()` (Task 10) —
+`ConsoleController` adds two thin call sites, not two implementations.**
+`App\Console\PredefinedSafeActions::ALL` (new, small, fixed catalog: the
+five commands `CommandPolicy` classifies Safe) backs both the Server and
+Console pages' predefined-action buttons
+(`ConsoleController::runSafeAction($key)`) and is presentation-only —
+`CommandPolicy` remains the sole authority on what actually IS safe,
+enforced by `runSafeCommand()`'s own refusal (`CommandNotSafe`) for
+anything else. A SEPARATE new route, `POST /server/console/run`
+(`ConsoleController::run()`), generalizes the identical lighter path to
+an arbitrary manually-typed command that merely happens to classify Safe
+(e.g. an operator typing "list" instead of clicking the button) — this
+was not in the brief's literal route list but follows directly from
+`runSafeCommand()`'s own contract (it already accepts any string, not
+just the five catalog entries) and from the CommandComposer needing
+*something* to call when `composePreview.risk === 'safe'`. Both routes
+are proven Safe-only the same way `RconCommandServiceTest` already
+proved `runSafeCommand()` itself is (`tests/Feature/Http/
+ConsoleControllerTest.php`: an unknown predefined-action key 404s
+without creating an Operation; a manually-typed Elevated command posted
+to `/server/console/run` creates nothing and flashes an error, proven
+with `bindPoisonedRconClient()` again).
+
+**Degraded RCON: ambiguity resolution #2 says "server/console/players"
+degrade — this task reads "console" as the ability to ACT through
+Console, not the tailed line feed itself, because those are genuinely
+different data sources with different dependencies.** `App\Models\
+ConsoleEntry`/the live `server.console` broadcast are file-tailed (Task
+11's `LogTailService`), entirely independent of RCON; only sending a
+command (compose is read-only and harmless even when RCON is down;
+propose creates an Operation with zero RCON contact either) — only
+*executing* one — depends on RCON. `ConsoleController` therefore always
+returns `recentEntries` regardless of RCON status, and the Console page
+shows a persistent, honest "RCON unavailable: <reason>" banner alongside
+the still-functioning feed, rather than hiding real, already-available
+log data (which would itself be a fabrication in the opposite
+direction — "nothing is available" when something genuinely is).
+`tests/Feature/Http/ConsoleControllerTest.php`'s "still returns the
+tailed console feed when RCON is unavailable" test and `tests/e2e/
+server-operations.spec.ts`'s "the file-based Logs page stays usable
+while RCON is unavailable" test both pin this directly. `LogController`
+is unconditionally independent of RCON (its `ServerStatusService` call
+only ever reads the `logs` half of the snapshot) — never degrades
+alongside the other two at all, per the brief's own explicit "file-based
+Logs remain usable."
+
+**No fabricated zero, applied to three NEW value types this task
+introduces (version, resource metrics, activity), on top of Task 11's
+existing player-count guarantee.** `App\Server\ServerVersion` is
+`known: false` (never a guessed label) whenever neither a root-level
+server JAR filename nor a startup log banner is found —
+`App\Server\ServerVersionDetector` never falls back to "assume latest"
+or "assume vanilla." Overview's "Resource summary" card is
+UNCONDITIONALLY `available: false` with the honest reason "Resource
+metrics are not collected in this version of CraftKeeper" — Task 11's
+own decisions.md is explicit that no CPU/memory telemetry was ever
+built ("No metrics/Prometheus/tracing... was built"), so reporting
+anything else here would be exactly the fabrication the brief
+prohibits, not a simplification. `App\Http\Controllers\
+ActivityController`'s three brief-named-but-unbuilt sources
+("ai-proposal", "api-call", "mcp-call") appear as real, selectable
+filter values (so the filter vocabulary is complete and forward-stable
+for Tasks 16/19+ to populate) but produce zero items — never a
+placeholder row pretending to be real activity.
+
+**`App\Server\ServerVersionDetector`'s JAR-filename regex deliberately
+captures ONLY the semantic Minecraft version, not a trailing build-number
+suffix — a second TDD-caught bug.** The first version's regex
+(`/(\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?)/`) greedily matched
+"1.21.4-130" out of `paper-1.21.4-130.jar` (Paper's own build number
+tacked onto the filename), producing the wrong label "Paper 1.21.4-130"
+where the test expected "Paper 1.21.4". Fixed by dropping the optional
+trailing-suffix group from the JAR-filename regex specifically; the
+LOG-banner path keeps a fuller capture (`[^\s(]+`) on purpose, since a
+real startup banner's own self-reported string (e.g. "1.21.4-130-abc123")
+*is* the software's authoritative version string, not something this
+class is inferring extra structure onto. A related ordering bug in the
+same class (a bare vanilla "Starting minecraft server version ..." line
+appearing before Paper's own "This server is running Paper version ..."
+line in a real Paper log — both genuinely appear in the same real
+log — caused the vanilla match to win by being scanned first) was fixed
+by scanning the WHOLE bounded window for a branded (Paper/Purpur/Spigot/
+Folia) match before falling back to the first vanilla match, rather than
+returning on the first match of either kind found.
+
+**Player identity: there is no UUID anywhere in CraftKeeper's data model
+for this task to preserve or accidentally fabricate — `players.username`
+is genuinely the only identity that has ever existed.** Confirmed by
+reading the migration directly
+(`database/migrations/..._create_server_observation_tables.php`:
+"`players.username` — the exact username string as observed in console
+output — never a looked-up or fabricated Mojang/Xbox UUID," Task 11).
+Every player action link on `resources/js/pages/server/Players.tsx`
+(Kick/Op/Deop/Ban) is built from `player.username` verbatim and
+pre-fills — never auto-sends — the Console composer via `?command=`,
+routing through the exact same elevated-command gate described above
+rather than a second, parallel action pipeline that could drift from it.
+
+**Reverb is wired up for real — `@laravel/echo-react` + `pusher-js`,
+genuine `REVERB_*`/`VITE_REVERB_*` env vars — because Task 12 is
+literally the task Task 5's own decisions.md forecast would need to do
+this ("provisioning those... is left to whichever later task first
+needs a frontend to actually subscribe to a channel").** `resources/js/
+lib/echo.ts` calls `configureEcho({ broadcaster: 'reverb' })` once, at
+app boot, unconditionally — NOT gated behind an "is Reverb configured"
+check, because `@laravel/echo-react`'s hooks throw synchronously
+("Echo has not been configured") if never configured at all, which
+would crash every page using `useEcho()`/`useConnectionStatus()`
+(Console, OperationProgress) the instant they mounted. A real, generated
+(not blank) `REVERB_APP_ID`/`KEY`/`SECRET` therefore had to be
+provisioned in `.env`/`.env.example` — Reverb app KEYS (unlike the
+secret) are not sensitive, the same way a Pusher app key isn't; they
+identify a websocket client, not authorize one. No supervisor anywhere
+in this repo runs `reverb:start` outside the Docker image
+(`docker/supervisor/supervisord.conf`) — locally, in the test suite, and
+in every e2e run in this sandbox there is consequently no live Reverb
+server to connect to, so `useConnectionStatus()` genuinely, observably
+never reaches `"connected"` — this is real, not simulated, and is
+exactly what `resources/js/hooks/use-realtime-status.ts`'s "unavailable"/
+"connecting" states and the Console page's reconnect banner
+(`tests/e2e/server-operations.spec.ts`'s "shows a reconnect state..."
+test) exercise.
+
+**DISCLOSED GAP: production Docker/Dokploy build-time wiring for
+`VITE_REVERB_*` was NOT done in this task, and is a real, load-bearing
+gap for a genuine Task-2-image deployment with Reverb actually running.**
+`VITE_REVERB_APP_KEY` etc. are inlined into the JS bundle at `npm run
+build` TIME (Vite's standard `import.meta.env` behavior for `VITE_`-
+prefixed vars), and Task 2's Dockerfile builds assets in a stage that
+only sets a fixed dummy `APP_KEY` — no `REVERB_*` build args exist there
+today. Until a future task threads real `REVERB_APP_KEY`/`HOST`/`PORT`/
+`SCHEME` values through as Docker build ARGs (mirroring how `APP_KEY`'s
+dummy value is handled, per Task 2's own decisions.md entry) and updates
+`compose.example.yml` accordingly, a real deployed container would ship
+a JS bundle wired to WHATEVER `REVERB_*` values happened to be present
+at image-build time, not the actual runtime Reverb credentials — the
+websocket features would degrade to "unavailable" in production too,
+safely (never a crash, never fabricated data) but not functionally live.
+This is explicitly out of scope for a UI-composition task and is flagged
+here for whichever task next touches the Docker build (2, 19, or 21).
+
+**Two pre-existing Task 3 accessibility bugs were found (not introduced)
+by this task's own e2e axe scans — the first ones to actually reach a
+DESKTOP view with an active primary-nav item, and a `--ck-danger`-toned
+`StatusBadge` chip sitting directly on `--ck-surface`.** Neither
+`tests/e2e/design-system.spec.ts` nor `tests/e2e/configuration.spec.ts`
+axe-scans a desktop view where a `primaryNavigation` item is the
+*active* one (design-system.spec.ts's route isn't a nav item;
+configuration.spec.ts's own axe scan is mobile-only, where the sidebar —
+and therefore the active-nav-link styling — is hidden entirely). Task
+12's own desktop axe-scan loop (`/overview`, `/server`, ... all real
+`primaryNavigation` items) was the first to exercise it for real, and
+found `AppShell.tsx`'s `ShellNav` active-link text
+(`--ck-accent-hover` on a ~16%-`--ck-accent`-tint background) measures
+4.45:1, under the 4.5:1 AA threshold — fixed by switching to `--ck-text`
+(~10.7:1 on the same background), the identical fix class already
+documented for `ServerIdentityCard`/`DiffReview` elsewhere in this file.
+Separately, hand-computed color-mix math (not just axe) confirmed
+`StatusBadge`'s "danger" tone (offline/failed/rolled-back) — a ~15%
+tint of `--ck-danger` per `ckChipStyle`'s own documented convention —
+measures ~4.3:1 on `--ck-surface`, under AA, and gets WORSE (not
+better) as the tint percentage increases, because tinting the background
+TOWARD the same hue as the (untinted) danger-colored text paradoxically
+reduces contrast between them; no tint percentage clears AA on
+`--ck-elevated` at all (even 0%, i.e. no tint, is only 4.62:1 there, and
+strictly decreases from there). Given the scale of blast radius a
+`ck-tokens.ts`/`--ck-danger` hue change would have across every already-
+shipped page using `StatusBadge`'s danger tone, this task did NOT touch
+the shared token math — instead, a new, purely-additive export,
+`StatusText` (`resources/js/components/craftkeeper/StatusBadge.tsx`),
+formalizes the "StatusGlyph + plain `--ck-text` label" fallback pattern
+`AppShell.tsx`/`DiffReview.tsx` already used ad hoc for the identical
+class of problem, and every "offline"/"failed"/"rolled-back"-capable
+status render this task added (Overview, Server, Players, Activity,
+OperationProgress) uses it instead of the tinted chip. The underlying
+`StatusBadge` danger-tone contrast gap itself remains open for whichever
+task next needs to render that tone directly as a chip (flagged here so
+it isn't rediscovered from scratch).
+
+**AppShell's own sidebar `server`/`user` identity props are left at
+their Task 3 mock defaults, consistent with every page built so far.**
+Task 9's `config/Edit.tsx` renders `<AppShell>` with no props at all;
+this task's six new pages do the same. Wiring the sidebar's own
+"Survival · mc.example.net · Paper 1.21.4 · 3/40 online" card to real
+data was not requested by this task's brief (which scopes the
+Overview/Server/Console/Logs/Players/Activity PAGE content, not
+AppShell's own chrome) and doing so unprompted would risk exactly the
+kind of "no fabricated zero" violation this task is otherwise strict
+about, since AppShell's props have no wiring contract of their own yet.
+Left as a disclosed, intentional non-goal.
+
+**Real, working real-time progress: `resources/js/features/operations/
+OperationProgress.tsx` re-syncs from its `operation` PROP via a
+`useEffect`, not just from the websocket — a THIRD TDD-caught bug, the
+subtlest one.** The first version seeded `status`/`outcome`/`errorCode`
+from `operation.status`/etc. with a bare `useState(operation.status)`
+initializer and updated them only from `useEcho()`'s live callback.
+`tests/e2e/server-operations.spec.ts`'s "proposing an elevated command...
+requires a separate approval click" test caught this: after clicking
+"Approve & send," the operation genuinely transitioned server-side
+(Proposed -> Running -> Succeeded/Failed, confirmed in the database),
+but the ALREADY-MOUNTED `OperationProgress` instance kept showing
+"Awaiting approval" indefinitely, because Inertia does not remount the
+`server/Console` page component (and therefore not
+`CommandComposer`/`OperationProgress` either) across a same-component
+full-page redirect (approve()'s `redirect('/server/console?operation=...')`)
+— it reuses the existing component tree and just re-renders with new
+props, which a bare `useState(prop)` initializer never re-reads after
+the first mount. The SAME root cause also meant `CommandComposer` kept
+showing its OWN stale "Request approval" panel instead of the fresh
+`pendingOperation` approval panel immediately after propose() — fixed
+there by explicitly reading `page.props.pendingOperation`/
+`composePreview` in each action's (`requestApproval`/`approve`/`reject`/
+`runNow`) own `onSuccess` callback and calling `setState` directly,
+rather than relying on prop-driven re-initialization at all. This is
+disclosed at length because it is exactly the class of bug "watch it
+fail, then implement" is meant to catch, and did.
+
+**e2e login-throttle collision, fixed by sharing ONE authenticated page
+across the whole spec file instead of logging in per test.** The first
+version of `tests/e2e/server-operations.spec.ts` followed `tests/e2e/
+configuration.spec.ts`'s exact `test.beforeEach(() => ensureLoggedInAdmin(page))`
+convention — safe for that file's 5 tests, but this file's larger test
+count (15) raced Fortify's real 5-attempts-per-minute login rate limit
+(Task 4): the first several tests passed, then `ensureLoggedInAdmin`'s
+"already onboarded, log in" branch started hanging on `waitForURL`
+indefinitely (a silently-throttled login attempt never redirects).
+Fixed by switching to `test.describe.serial()` with ONE browser context/
+page created once in `beforeAll` (login happens exactly once for the
+whole file) and reused by every `test()` via closure rather than the
+default per-test `page` fixture — which also, incidentally, cut the
+file's total runtime from ~1.4 minutes to ~15 seconds and is a more
+realistic model of how one operator actually uses this app in one
+sitting.
+
+**Files beyond the brief's literal list, and why (same pattern Tasks
+5/10/11 already established for this).** `App\Console\
+CommandConsequences`/`App\Console\PredefinedSafeActions` (the brief's own
+ambiguity resolution #1 explicitly asks for a consequence lookup with
+nowhere else to live); `App\Server\ServerVersion`/`ServerVersionDetector`
+(the brief's own "version data discovered from logs/JAR metadata"
+requirement, likewise homeless without them); `App\Http\Controllers\
+Concerns\PresentsOperations` (one shared operation-summary shape used
+identically by Overview/Console/Activity, to keep the three pages from
+drifting into three different vocabularies for the same `Operation`);
+`resources/js/lib/echo.ts`/`resources/js/hooks/use-realtime-status.ts`
+(Reverb client bootstrap and the connection-status vocabulary, needed by
+both `CommandComposer` and `OperationProgress`); `resources/js/types/
+server.ts`/`activity.ts` (the DTO vocabulary, mirroring `types/config.ts`'s
+own Task 9 precedent); a new route, `POST /server/console/run` (see the
+predefined-actions entry above); and one small, purely additive export,
+`StatusText`, on the existing `StatusBadge.tsx` (see the accessibility
+entry above).
+
+**Gates, run for real:** `php artisan test tests/Feature` (290 tests,
+280 passed, 10 pre-existing skips, 0 new failures — `tests/Browser`
+does not exist, see this section's first entry), `composer test` (512
+tests total across the whole suite, 502 passed, 10 skipped, 0 PHPStan
+errors, Pint clean), `npm run typecheck` (clean), `npm run build`
+(succeeds, six new page bundles present in the manifest), `npm run test`
+(Vitest, 14/14, unaffected), `npm run e2e -- --grep "overview|server|
+console|logs|players|activity"` (15/15, real Chromium, this exact grep
+pattern), and the FULL `npm run e2e` with no grep (all 30 tests across
+all four spec files — `configuration`, `design-system`, `onboarding`,
+and this task's own `server-operations` — 30/30, confirming the
+`AppShell.tsx`/`StatusBadge.tsx` accessibility fixes above didn't
+regress any earlier task's suite).

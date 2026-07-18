@@ -5,8 +5,13 @@ import { initializeTheme } from '@/hooks/use-appearance';
 import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import SettingsLayout from '@/layouts/settings/layout';
+import { bootEcho } from '@/lib/echo';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+
+// Configuring Echo once, at boot, is required before any page's
+// useEcho()/useConnectionStatus() call runs — see resources/js/lib/echo.ts.
+bootEcho();
 
 createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
@@ -14,12 +19,15 @@ createInertiaApp({
         switch (true) {
             case name === 'welcome':
             case name === 'DesignSystem':
+            case name === 'Overview':
+            case name === 'Activity':
             case name.startsWith('config/'):
-                // config/* pages wrap themselves in the CraftKeeper AppShell
-                // (Task 3) directly, the same way DesignSystem does — the
-                // starter kit's own AppLayout below is a different,
-                // pre-CraftKeeper sidebar shell that config pages must not
-                // be double-wrapped in.
+            case name.startsWith('server/'):
+                // config/*, server/*, Overview, and Activity all wrap
+                // themselves in the CraftKeeper AppShell (Task 3) directly,
+                // the same way DesignSystem does — the starter kit's own
+                // AppLayout below is a different, pre-CraftKeeper sidebar
+                // shell that these pages must not be double-wrapped in.
                 return null;
             case name.startsWith('auth/'):
             case name.startsWith('onboarding/'):

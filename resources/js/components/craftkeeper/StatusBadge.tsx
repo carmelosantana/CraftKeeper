@@ -220,3 +220,43 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
         </span>
     );
 }
+
+/**
+ * A safe fallback for call sites whose background isn't one of
+ * `StatusBadge`'s chip fill's contrast-verified surfaces. The chip fill
+ * is a ~15% tint of the status's tone color (see `ckChipStyle` /
+ * `design-tokens.json`'s "badge fills ~15%" convention) — verified
+ * AA-safe for most tones on `--ck-surface`, but Task 12's own e2e axe
+ * scan found the "danger" tone (offline/failed/rolled-back) measures
+ * ~4.3:1 there, under the 4.5:1 AA threshold (the tint brings the
+ * background color closer to the vivid danger hue itself, which
+ * paradoxically REDUCES contrast against danger-colored text — verified
+ * by hand, not just observed). This pairs the identical per-status shape
+ * (`StatusGlyph`) with a plain `--ck-text` label instead, which holds AA
+ * on every surface in this app — the same fix already applied to
+ * `AppShell.tsx`'s `ServerIdentityCard` and
+ * `resources/js/features/config/DiffReview.tsx`'s risk indicator (see
+ * docs/architecture/decisions.md, Tasks 3/9/12).
+ */
+export function StatusText({ status, label, className }: StatusBadgeProps) {
+    const meta = STATUS_BADGE_META[status];
+    const visibleLabel = label ?? meta.label;
+    const accessibleName =
+        label && label !== meta.label ? `${meta.label}: ${label}` : meta.label;
+
+    return (
+        <span
+            role="status"
+            aria-label={accessibleName}
+            data-ck-status={status}
+            className={cn(
+                'inline-flex items-center gap-[7px] font-sans text-xs font-semibold',
+                className,
+            )}
+            style={{ color: 'var(--ck-text)' }}
+        >
+            <StatusGlyph tone={meta.tone} glyph={meta.glyph} />
+            <span>{visibleLabel}</span>
+        </span>
+    );
+}

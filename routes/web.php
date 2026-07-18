@@ -1,8 +1,13 @@
 <?php
 
+use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\ConfigController;
+use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\LogController;
 use App\Http\Controllers\OnboardingController;
+use App\Http\Controllers\OverviewController;
+use App\Http\Controllers\ServerController;
 use App\Http\Middleware\RequireInstallation;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -61,6 +66,31 @@ Route::middleware(['auth'])->prefix('onboarding')->name('onboarding.')->group(fu
 
 Route::middleware(['auth'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    // Task 12: the server operations workspace.
+    Route::get('overview', [OverviewController::class, 'index'])->name('overview');
+
+    Route::prefix('server')->name('server.')->group(function () {
+        Route::get('/', [ServerController::class, 'index'])->name('index');
+        Route::get('players', [ServerController::class, 'players'])->name('players');
+
+        // Literal-prefixed console routes registered before nothing
+        // wildcard-shaped lives under this prefix — matches Task 9's
+        // ConfigController convention of ordering specific routes ahead
+        // of any catch-all, even though console has no catch-all today.
+        Route::get('console', [ConsoleController::class, 'index'])->name('console');
+        Route::post('console', [ConsoleController::class, 'compose'])->name('console.compose');
+        Route::post('console/propose', [ConsoleController::class, 'propose'])->name('console.propose');
+        Route::post('console/run', [ConsoleController::class, 'run'])->name('console.run');
+        Route::post('console/actions/{key}', [ConsoleController::class, 'runSafeAction'])->name('console.actions.run');
+        Route::post('console/operations/{operation}/approve', [ConsoleController::class, 'approve'])->name('console.approve');
+        Route::post('console/operations/{operation}/reject', [ConsoleController::class, 'reject'])->name('console.reject');
+
+        Route::get('logs', [LogController::class, 'index'])->name('logs');
+        Route::get('logs/download', [LogController::class, 'download'])->name('logs.download');
+    });
+
+    Route::get('activity', [ActivityController::class, 'index'])->name('activity');
 
     // Task 9: configuration inventory + editor. Literal-prefixed routes
     // (operations/*, revisions/*, history/*) are registered BEFORE the two
