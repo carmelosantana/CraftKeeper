@@ -3164,3 +3164,173 @@ suite: **41/41 passing** — the pre-existing 36 plus 5 new
 `tests/e2e/assistant.spec.ts` cases: auth gate, disabled-state
 rendering, primary-nav reachability, and desktop/mobile axe-clean
 layout).
+
+## Task 17 — Versioned REST API, Scoped Tokens, and OpenAPI
+
+**`config:apply` reconciliation — the crux, resolved without weakening
+Task 5's lifecycle.** Task 5's `OperationService` already keeps
+`approve()` and `execute()` as two SEPARATELY triggerable methods
+(`approve()` deliberately does not call `execute()` — see its own
+docblock: "whichever task builds the first real handler decides"). That
+means `config:apply` never needed a special carve-out: `POST
+/api/v1/config/proposals/{operation}/apply`
+(`App\Http\Controllers\Api\V1\ConfigController::apply()`) calls
+`OperationService::execute($operation->id)` ONLY, gated by a new
+`App\Policies\ApiOperationPolicy::apply()` check that requires the
+operation to already be `OperationStatus::Approved` (returning 409
+`operation_not_approved` otherwise, leaving the operation's state
+completely untouched). Two structural facts make "config:apply can
+never approve" true rather than merely tested-true today: (1)
+`OperationService::approve()`'s second parameter is typed `App\Models\User`
+— not `OperationAuthor` — so no API-token-authored call can ever
+satisfy that signature even if someone tried; (2) `ApiOperationPolicy`
+has no `approve()` method at all, by design (see its own docblock) — the
+absence of the method, not a runtime `false`, is what makes the
+invariant hold. `ApiOperationPolicy::apply()` additionally asserts
+`approved_by_type === OperationActorType::Human` as belt-and-suspenders,
+even though only `OperationService::approve()` can ever produce an
+Approved operation and it always sets that field itself.
+
+**The real security finding of this task: Sanctum's session-guard
+fallback silently grants FULL, unscoped access via `TransientToken`.**
+`Laravel\Sanctum\Guard::__invoke()` checks the 'web' SESSION guard
+FIRST, unconditionally (no "is this a stateful domain" gate lives in the
+guard itself — only in `EnsureFrontendRequestsAreStateful`, which this
+app never applies to `/api/v1`). A session-authenticated request is
+wrapped in a `Laravel\Sanctum\TransientToken`, and
+`TransientToken::can($ability)` returns `true` UNCONDITIONALLY, for
+every ability. An earlier draft of `App\Http\Middleware\EnsureApiScope`
+checked only `$user->tokenCan($scope)` and was defeated by this: an
+admin's own already-logged-in browser tab satisfied every scope check
+with zero tokens involved — precisely the bypass the brief's "a token's
+scope is a hard boundary" line forbids. The fix (and the shipped
+behavior) is to require `$user->currentAccessToken()` to be an
+`instanceof Laravel\Sanctum\PersonalAccessToken` — never true for a
+`TransientToken` — rejecting a session-authenticated request with 401,
+exactly as far as an anonymous request gets. Covered by
+`tests/Feature/Api/V1/ApiScopeTest.php`'s "does not let an authenticated
+browser session reach any scoped /api/v1 endpoint" test. Recorded here
+because this is exactly the kind of fork the task's own Escalation
+section asks to be reported rather than guessed past — it was caught by
+writing the test, not by reading Sanctum's docs (which do not mention
+`TransientToken`'s `can()` behavior).
+
+**`rcon:safe` / `rcon:admin` is a content-dependent "any of" scope, not
+two independent capabilities.** The route
+(`POST /api/v1/operations/rcon-commands`) is gated at the middleware
+layer by `scope:rcon:safe,rcon:admin` (either scope admits the request),
+then `App\Http\Controllers\Api\V1\OperationController::createRconCommand()`
+does a second, finer check: if `App\Console\CommandPolicy::classify()`
+rates the submitted command Elevated, the token must ALSO carry
+`rcon:admin` specifically (403 `forbidden_scope` otherwise) — a
+`rcon:safe`-only token can propose exactly the same small, fixed
+allow-list `CommandPolicy::classify()` already defines as Safe (Task
+10), never more. Both scopes ONLY ever call
+`App\Console\RconCommandService::proposeCommand()` — never
+`runSafeCommand()` (the web UI's "propose+self-approve+execute" lighter
+path for predefined Safe actions), because that method calls
+`OperationService::approve()` internally. Offering that lighter path
+over the API would mean a leaked `rcon:safe` token could get a command
+executed with zero additional human action; keeping the API on
+`proposeCommand()` only means every rcon command proposed through
+`/api/v1`, Safe or Elevated, waits for the exact same human approval
+click in the web Console every other command already requires.
+
+**Idempotency-Key is a dedicated table, not reuse of `Operation::
+correlation_id`.** `correlation_id` is generated fresh by
+`OperationService::propose()` itself (a `Str::uuid()` per operation) and
+was never meant to be caller-suppliable or looked-up-by; conflating it
+with an idempotency key would mean either accepting a client-chosen
+`correlation_id` (a new, unaudited input surface) or a second lookup
+index on a column that already means something else. A new table,
+`api_idempotency_keys`, keyed by `(personal_access_token_id, endpoint,
+idempotency_key)` — scoped per TOKEN (not per user, so two tokens
+belonging to the same admin never collide) and per ENDPOINT (so a key
+reused across two different mutation routes is a distinct request, not
+an accidental cross-endpoint hit) — records which `Operation` a key
+produced. `App\Support\Api\IdempotencyKeyStore::resolve()` additionally
+hashes the request body: a repeated key with an IDENTICAL body returns
+the original `Operation`; a repeated key with a DIFFERENT body returns
+409 `idempotency_key_conflict` instead of silently returning a
+proposal that doesn't match what was just asked for, or silently
+creating a second one. A `UniqueConstraintViolationException` race
+(two concurrent requests, identical key) is caught and resolved to the
+winner's row rather than erroring.
+
+**Cursor pagination is a small array/Collection-based paginator, not
+Eloquent's native `cursorPaginate()`.** `GET /api/v1/config/files` is
+backed by `App\Filesystem\MinecraftFilesystem::discover()` — an
+in-memory array scan, not a query — exactly like the existing web
+`App\Http\Controllers\ConfigController::index()`. Rather than have one
+paginator for Eloquent-backed lists (operations, plugins) and a
+different bespoke slicing scheme for the filesystem-backed one,
+`App\Support\Api\CursorPaginator::paginate()` works uniformly over an
+already-sorted `Illuminate\Support\Collection` for all three, using a
+base64-encoded copy of the caller-supplied identifier (a file path, an
+Operation's ordered UUID, a plugin's relative path) as the opaque
+cursor. `Operation::id` is safe to use as a chronological sort/cursor
+key without a separate `created_at` tie-breaker because
+`Illuminate\Database\Eloquent\Concerns\HasUuids`' default
+`newUniqueId()` is `Str::orderedUuid()` — already time-sortable.
+
+**Personal-access-tokens migration is hand-copied, not published.**
+`laravel/sanctum` does not auto-load its own migrations (unlike some
+first-party packages); nothing in this repo had previously run `php
+artisan vendor:publish --tag=sanctum-migrations`. Rather than introduce
+a `vendor:publish` step into `composer.json`'s `setup` script for one
+table, `database/migrations/2026_07_25_000000_create_personal_access_tokens_table.php`
+reproduces Sanctum's own migration verbatim (same columns, same
+indexes) as a normal, dated, repo-owned migration — identical in spirit
+to every other table in this application.
+
+**Plugin install/update are intentionally NOT exposed via `/api/v1` in
+this task.** `plugins:manage` covers `disable`/`remove` only.
+`PluginLifecycleService::proposeInstall()`/`proposeUpdate()` require
+re-resolving a catalog release identity and downloading/inspecting a
+real artifact (`PluginDownloader`, `JarInspector`) — a heavier,
+network-touching flow `App\Http\Controllers\PluginController`'s
+Discover page already owns end-to-end, including the "never trust a
+client-supplied download URL/checksum" invariant that controller's own
+docblock documents. `disable`/`remove` need no such resolution and are
+sufficient to exercise the `plugins:manage` scope boundary without
+duplicating that install/update pipeline behind a second, harder-to-keep-
+consistent entry point. Nothing prevents a future task from adding
+install/update endpoints that call the exact same
+`PluginLifecycleService` methods the web UI already uses.
+
+**The OpenAPI contract test compares by a route-name-is-operationId
+convention, not a separate mapping table.** Every route in
+`routes/api.php` is `->name()`d identically to the `operationId` it
+carries in `openapi.yaml` (documented in that route file's own
+docblock). `tests/Contract/Api/OpenApiTest.php` parses `openapi.yaml`
+with `symfony/yaml` (already a transitive dependency; no new package
+added) and asserts both directions — every registered `/api/v1` route
+has a same-named, same-path, same-method operation in the spec, and
+every documented operation resolves to a real registered route — using
+that name/operationId identity as the join key, rather than a hand-
+maintained mapping that could itself drift from either side.
+
+**Not built in this task (explicit scope decisions):** `plugin.install`/
+`plugin.update` proposal endpoints (see above); a webhook/event-push
+mechanism (explicitly documented as absent in `openapi.yaml`'s `info.description`,
+per the brief's own requirement); full OpenAPI 3.1 meta-schema
+validation of `openapi.yaml` (the contract test does structural spot-
+checks — operationId/summary/security/responses present on every
+operation, security scheme + scope list correct — not a full JSON
+Schema validation against the OpenAPI 3.1 specification itself, which
+would need an additional dependency for marginal extra coverage this
+task's time budget didn't prioritize). None of these affect the scope
+or approval boundaries this task is graded on.
+
+**Gates, run for real:** `php artisan test tests/Feature/Api
+tests/Contract/Api` (57 tests, 365 assertions, all passing). `composer
+test` (759 tests total — 749 passed, 10 pre-existing skips, 0 failures;
+PHPStan level 7 clean; Pint clean). `npm run typecheck` (clean). `npm
+run build` (succeeds; `integrations/Api.tsx` bundles and code-splits
+correctly). `npm run test` (Vitest, 14/14, unaffected). `npm run
+lint:check` was run as an extra sanity check (not a mandated gate for
+this task): it reports pre-existing lint debt across files this task
+never touched (e.g. `Activity.tsx`, `server/Logs.tsx`,
+`types/plugins.ts`) — the one finding inside this task's own new file
+(`integrations/Api.tsx`'s import order) was fixed; the file is
+`eslint`/`prettier` clean.

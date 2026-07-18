@@ -5,6 +5,7 @@ use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\Integrations\ApiTokenController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OverviewController;
@@ -93,6 +94,33 @@ Route::middleware(['auth'])->group(function () {
     });
 
     Route::get('activity', [ActivityController::class, 'index'])->name('activity');
+
+    // Task 17: the /api/v1 scoped-token management page. Session-
+    // authenticated (like every other route in this group) — creating or
+    // revoking a token is a human, web-console-only action, never
+    // something reachable through /api/v1 itself. `openapi.yaml` is
+    // served alongside it for the "link to the OpenAPI docs" requirement;
+    // it is documentation, not a credential, so it needs no scope of its
+    // own — only the same session auth every other page in this group
+    // already requires.
+    //
+    // AppShell's primary navigation (resources/js/layouts/AppShell.tsx)
+    // already carries a top-level "Integrations" entry that defaults to
+    // `/integrations` — the API token page is the only Integrations
+    // surface this task builds (AI provider/RCON setup and MCP client
+    // grants are Design/handoff/pages.json's remaining Integrations
+    // screens, out of scope here), so `/integrations` redirects straight
+    // to it rather than 404ing.
+    Route::redirect('integrations', '/integrations/api');
+
+    Route::prefix('integrations')->name('integrations.')->group(function () {
+        Route::get('api', [ApiTokenController::class, 'index'])->name('api');
+        Route::post('api/tokens', [ApiTokenController::class, 'store'])->name('api.tokens.store');
+        Route::delete('api/tokens/{token}', [ApiTokenController::class, 'destroy'])->name('api.tokens.destroy');
+    });
+
+    Route::get('openapi.yaml', fn () => response()->file(base_path('openapi.yaml'), ['Content-Type' => 'text/yaml']))
+        ->name('openapi');
 
     // Task 16: the optional AI assistant. AI being disabled/unavailable
     // never affects any other route in this group — see App\Ai\AiManager

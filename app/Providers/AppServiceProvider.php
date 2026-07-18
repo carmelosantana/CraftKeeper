@@ -23,8 +23,11 @@ use App\Operations\Handlers\ServerStopHandler;
 use App\Operations\OperationHandlerRegistry;
 use App\Testing\E2eFixturePluginSource;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -131,6 +134,27 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureApiRateLimiting();
+    }
+
+    /**
+     * Task 17's ambiguity resolution #4: "429 for throttling" on /api/v1.
+     * Keyed by the authenticated PERSONAL ACCESS TOKEN id when one is
+     * present (so two tokens belonging to the same admin never share a
+     * bucket), falling back to the client IP for the rare case a request
+     * reaches this limiter unauthenticated (e.g. a request with no token
+     * at all, which App\Http\Middleware\EnsureApiScope would reject
+     * anyway, but the 'throttle:api' middleware in bootstrap/app.php's
+     * 'api' group runs first).
+     */
+    protected function configureApiRateLimiting(): void
+    {
+        RateLimiter::for('api', function (Request $request) {
+            $user = $request->user('sanctum');
+            $tokenId = $user?->currentAccessToken()->id ?? null;
+
+            return Limit::perMinute(120)->by($tokenId ?? $request->ip());
+        });
     }
 
     /**
