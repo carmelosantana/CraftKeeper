@@ -352,12 +352,27 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # upload-release-assets: false is required, not cosmetic. When the
+      # workflow is triggered by a tag that has a GitHub Release,
+      # anchore/sbom-action tries to attach the SBOM to that release, which
+      # needs `contents: write`. This job intentionally holds only
+      # `id-token: write` (for keyless Sigstore) and `packages: write` — it
+      # is the most privileged job in the pipeline and must not also gain
+      # write access to repository contents just to publish an attachment.
+      # The SBOMs are still uploaded as workflow artifacts below and attached
+      # to the image itself via `cosign attest`, which is the copy that
+      # matters for verification.
+      #
+      # Without this, SBOM generation succeeds and the step still fails with
+      # "Resource not accessible by integration", taking down the signing job
+      # and (correctly) blocking the moving-tag publish behind it.
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ needs.build-and-push.outputs.image_ref }}
           format: spdx-json
           output-file: craftkeeper.spdx.json
+          upload-release-assets: false
 
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -365,6 +380,7 @@ jobs:
           image: ${{ needs.build-and-push.outputs.image_ref }}
           format: cyclonedx-json
           output-file: craftkeeper.cyclonedx.json
+          upload-release-assets: false
 
       - name: Upload SBOMs as workflow artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

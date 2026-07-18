@@ -415,6 +415,34 @@ jobs:
           echo "/up -> 200 under minimal configuration"
           docker rm -f ck-minimal >/dev/null 2>&1 || true
 
+      # Stricter still: APP_KEY and nothing else. image.yml's release smoke
+      # test runs the image this bare, so a failure here would otherwise only
+      # surface after a ~90-minute multi-arch build, against an already-pushed
+      # tag. It caught a real bug: docker/entrypoint.sh assigned DATA_ROOT and
+      # DB_DATABASE without `export`, so PHP never saw them and Laravel fell
+      # back to a different path than the one the entrypoint had prepared and
+      # migrated. Every request returned 503 with "Database file ... does not
+      # exist" whenever those variables were absent from the environment.
+      - name: Boot the image with no configuration beyond APP_KEY
+        run: |
+          docker run -d --name ck-bare -p 8081:8080 \
+            -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            craftkeeper:ci
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/up || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          final=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/up || true)
+          if [ "$final" != "200" ]; then
+            echo "::error::/up returned $final with only APP_KEY set"
+            docker logs ck-bare 2>&1 | tail -50
+            docker rm -f ck-bare >/dev/null 2>&1 || true
+            exit 1
+          fi
+          echo "/up -> 200 with only APP_KEY set"
+          docker rm -f ck-bare >/dev/null 2>&1 || true
+
       - name: Verify PHP version inside the image
         run: docker run --rm craftkeeper:ci php -v | grep -q "PHP 8.4"
 
