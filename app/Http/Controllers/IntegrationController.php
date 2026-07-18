@@ -62,6 +62,25 @@ class IntegrationController extends Controller
         ]);
     }
 
+    /**
+     * Task 19 fix pass: these four keys hit the `default => null` arm
+     * below — there is no live probe to run for them at all (Official
+     * documentation cache is a static, curated, in-process dataset;
+     * API/MCP just re-count already-persisted rows; Umami just
+     * re-validates already-stored settings). Flashing "Tested {key}." for
+     * them claimed a check ran when nothing was actually exercised,
+     * contradicting the Integrations page's own "Nothing here is
+     * fabricated" copy — see testToastMessage()'s own docblock.
+     *
+     * @var array<string, string>
+     */
+    private const NO_PROBE_LABELS = [
+        'documentation' => 'the documentation cache',
+        'api' => 'API status',
+        'mcp' => 'MCP status',
+        'umami' => 'Umami status',
+    ];
+
     public function test(string $key): RedirectResponse
     {
         if (! in_array($key, self::TESTABLE_KEYS, true)) {
@@ -80,7 +99,7 @@ class IntegrationController extends Controller
             default => null,
         };
 
-        Inertia::flash('toast', ['type' => 'info', 'message' => "Tested {$key}."]);
+        Inertia::flash('toast', ['type' => 'info', 'message' => $this->testToastMessage($key)]);
 
         return redirect('/integrations');
     }
@@ -94,5 +113,21 @@ class IntegrationController extends Controller
     private function testCatalogSource(PluginSource $source): void
     {
         $source->search(new PluginSearchQuery);
+    }
+
+    /**
+     * "Tested {label}." is only ever accurate for a key that this
+     * method's match arm above (or, for `ai`, AiManager::healthDetail()'s
+     * own always-fresh check) genuinely exercised. For self::NO_PROBE_LABELS
+     * — the keys with no live check to trigger — the toast instead reads
+     * as a recheck/refresh of the already-current state, which is exactly
+     * what happens: the redirect below simply re-renders index(), the
+     * same honest computation a plain page reload would show.
+     */
+    private function testToastMessage(string $key): string
+    {
+        $label = self::NO_PROBE_LABELS[$key] ?? null;
+
+        return $label !== null ? "Refreshed {$label}." : "Tested {$key}.";
     }
 }

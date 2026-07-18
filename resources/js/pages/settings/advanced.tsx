@@ -43,11 +43,11 @@ export default function AdvancedSettings({
                         recent logs, and recent operation failures. Never includes secrets, API
                         or MCP tokens, AI chat content, or uploaded plugin JARs.
                     </p>
-                    <a href={SettingsController.downloadSupportBundle.url()} data-test="download-support-bundle-link">
-                        <Button type="button" data-test="download-support-bundle-button">
+                    <Button asChild>
+                        <a href={SettingsController.downloadSupportBundle.url()} data-test="download-support-bundle-link">
                             Download support bundle
-                        </Button>
-                    </a>
+                        </a>
+                    </Button>
                 </div>
             </div>
         </>

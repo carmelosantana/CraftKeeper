@@ -47,6 +47,16 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
     },
     {
+        title: 'API',
+        href: '/integrations/api',
+        icon: null,
+    },
+    {
+        title: 'MCP',
+        href: '/integrations/mcp',
+        icon: null,
+    },
+    {
         title: 'Advanced',
         href: '/settings/advanced',
         icon: null,

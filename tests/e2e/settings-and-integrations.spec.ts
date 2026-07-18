@@ -170,11 +170,22 @@ test.describe.serial('settings and integrations', () => {
     // task's own pages. Flagged separately rather than fixed here (out of
     // scope — Toaster is a shared Task 3 primitive, not something this
     // task owns).
+    // Repointed at `rcon` (Task 19 fix pass): `documentation` is one of the
+    // four keys App\Http\Controllers\IntegrationController::test() has no
+    // live probe for at all (it hits that method's `default => null` arm —
+    // see its own docblock), so clicking its Test button exercised routing
+    // only, never a real check, despite this test's own title. `rcon`
+    // genuinely triggers `Artisan::call('server:sample-state')`, a real,
+    // on-demand, bounded RCON probe against the host ensureLoggedInAdmin()
+    // configured during onboarding — local-only (127.0.0.1), so this stays
+    // fast and network-independent even though no real Minecraft server is
+    // listening.
     test('a Test button runs a real check and redirects back with a status', async () => {
         await page.goto('/integrations');
-        const documentationRow = page.locator('[data-integration-key="documentation"]');
-        await documentationRow.getByTestId('integration-test-button').click();
+        const rconRow = page.locator('[data-integration-key="rcon"]');
+        await rconRow.getByTestId('integration-test-button').click();
         await page.waitForURL('**/integrations');
         await expect(page.getByRole('heading', { name: 'Integrations', level: 1 })).toBeVisible();
+        await expect(rconRow).toContainText('Degraded');
     });
 });

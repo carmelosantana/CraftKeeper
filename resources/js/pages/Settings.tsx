@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { AppShell } from '@/layouts/AppShell';
 import type { SettingsIndexPageProps } from '@/types/settings';
 
@@ -38,7 +38,7 @@ export default function Settings({ sections, summary }: SettingsIndexPageProps) 
             <ul className="grid gap-[10px] sm:grid-cols-2 lg:grid-cols-3" data-test="settings-section-list">
                 {sections.map((section) => (
                     <li key={section.key}>
-                        <a
+                        <Link
                             href={section.href}
                             data-test={`settings-section-${section.key}`}
                             className="block h-full rounded-[12px] border p-[16px] transition-colors hover:border-[var(--ck-border-strong)]"
@@ -50,7 +50,7 @@ export default function Settings({ sections, summary }: SettingsIndexPageProps) 
                             <span className="mt-[4px] block text-[12px]" style={{ color: 'var(--ck-text-2)' }}>
                                 {section.description}
                             </span>
-                        </a>
+                        </Link>
                     </li>
                 ))}
             </ul>

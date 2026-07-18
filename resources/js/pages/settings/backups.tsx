@@ -68,11 +68,11 @@ export default function BackupsSettings({ backups }: BackupsSettingsPageProps) {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <a href={BackupController.download.url(backup.name)} data-test="download-backup-link">
-                                        <Button type="button" variant="outline" size="sm">
+                                    <Button asChild variant="outline" size="sm">
+                                        <a href={BackupController.download.url(backup.name)} data-test="download-backup-link">
                                             Download
-                                        </Button>
-                                    </a>
+                                        </a>
+                                    </Button>
                                     <Button
                                         type="button"
                                         variant="destructive"

@@ -4,11 +4,14 @@ use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\ApiIdempotencyKey;
 use App\Models\ConfigChangePayload;
+use App\Models\ConsoleEntry;
 use App\Models\Operation;
 use App\Models\Secret;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\SupportBundleService;
+use Illuminate\Support\Facades\File;
+use Tests\Support\TempMinecraftRoot;
 
 beforeEach(function () {
     $this->admin = User::factory()->create();
@@ -108,6 +111,98 @@ it('excludes every seeded secret canary from the generated support bundle', func
         ->and($haystack)->not->toContain('CANARY-REQUEST-HASH-value');
 
     @unlink($zipPath);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Task 19 fix pass: a schema `secret: true` config field VALUE (not just
+| a App\Models\Secret store row) must also be redacted from every file in
+| the bundle, including logs/console-recent.log — App\Server\
+| LogTailService persists console output verbatim (it strips ANSI and
+| truncates, but never redacts), so a secret echoed to the Minecraft
+| console lands unmasked in App\Models\ConsoleEntry unless this class's
+| own redaction pass catches it.
+|--------------------------------------------------------------------------
+*/
+it('redacts a schema-flagged config secret value from the support bundle, including a console log line that echoes it', function () {
+    $minecraftRoot = TempMinecraftRoot::create();
+    config(['craftkeeper.minecraft_root' => $minecraftRoot]);
+
+    // The schema-secret value lives ONLY in the live config file — never
+    // in the App\Models\Secret store — so this specifically exercises
+    // App\Ai\SecretRedactor::discoverSchemaSecretLabels()'s half, not the
+    // configuredSecretLabels() half already covered above.
+    $schemaSecretCanary = 'canary-schema-secret-9d8c7b6a';
+    file_put_contents(
+        $minecraftRoot.'/server.properties',
+        "motd=hello world\nrcon.password={$schemaSecretCanary}\n",
+    );
+
+    // The exact leak path the brief describes: the value gets echoed to
+    // the Minecraft console and LogTailService persists it verbatim.
+    ConsoleEntry::query()->create([
+        'line' => "[RCON] Set rcon.password to {$schemaSecretCanary}",
+        'occurred_at' => now(),
+    ]);
+
+    $zipPath = app(SupportBundleService::class)->create();
+
+    expect($zipPath)->toBeFile();
+
+    $haystack = bundleHaystack($zipPath);
+
+    expect($haystack)->not->toContain($schemaSecretCanary);
+
+    @unlink($zipPath);
+    TempMinecraftRoot::destroy($minecraftRoot);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Task 19 fix pass: the application log tail must never leak a truncated
+| secret prefix via a PHP stack-trace frame — PHP's own
+| Exception::getTraceAsString() truncates a string ARGUMENT to 15 chars,
+| which exact-value redaction can never match (it is not the full known
+| secret value, just a prefix of one).
+|--------------------------------------------------------------------------
+*/
+it('drops a stack-trace frame carrying a truncated-secret argument from the application log tail', function () {
+    $logPath = storage_path('logs/laravel.log');
+    $original = File::exists($logPath) ? File::get($logPath) : null;
+
+    // The truncated prefix PHP itself would produce for a 30+ character
+    // secret argument (getTraceAsString() cuts a string arg to 15 chars,
+    // then appends "...").
+    $truncatedSecretPrefix = 'super-secret-va';
+    $frameLine = "#0 /app/Models/Secret.php(42): App\\Models\\Secret::put('rcon.password', '{$truncatedSecretPrefix}...')";
+
+    File::put($logPath, implode("\n", [
+        '[2026-07-18 00:00:00] local.ERROR: Something failed {"exception":"[object] (RuntimeException(code: 0): boom at /app/Foo.php:10)',
+        '[stacktrace]',
+        $frameLine,
+        '#1 {main}',
+        '"}',
+        '',
+    ]));
+
+    try {
+        $zipPath = app(SupportBundleService::class)->create();
+
+        expect($zipPath)->toBeFile();
+
+        $haystack = bundleHaystack($zipPath);
+
+        expect($haystack)->not->toContain($frameLine)
+            ->and($haystack)->not->toContain($truncatedSecretPrefix);
+
+        @unlink($zipPath);
+    } finally {
+        if ($original === null) {
+            File::delete($logPath);
+        } else {
+            File::put($logPath, $original);
+        }
+    }
 });
 
 it('excludes full uploaded JAR bytes from the support bundle', function () {

@@ -2,10 +2,14 @@
 
 namespace App\Ai;
 
+use App\Config\ConfigFormatRegistry;
 use App\Config\ParsedConfig;
 use App\Config\Schemas\ConfigSchema;
+use App\Config\Schemas\ConfigSchemaRegistry;
+use App\Filesystem\MinecraftFilesystem;
 use App\Models\Secret;
 use App\Operations\InputRedactor;
+use Throwable;
 
 /**
  * Replaces every occurrence of a KNOWN secret VALUE inside arbitrary text
@@ -33,9 +37,25 @@ use App\Operations\InputRedactor;
  * a config excerpt, or echoed inside a log line is caught the same way.
  * Disclosures are one per DISTINCT value actually found (never one per
  * occurrence, and never the value itself) — see App\Ai\RedactionResult.
+ *
+ * Task 19 fix pass: redactKnownSecrets()'s schema-discovered half only
+ * ever covers the ONE $parsed config a caller happens to hand in — fine
+ * for App\Ai\ContextBuilder (there is always exactly one config path in
+ * play for a chat turn), wrong for a multi-file exporter with no single
+ * "the" config file. configuredAndSchemaSecretValues() (and its Labels
+ * sibling) is that other convenience: every configured Secret value PLUS
+ * every schema `secret: true` field value discoverable across the WHOLE
+ * mounted Minecraft root, gathered once. Prefer it whenever a caller has
+ * no single config path to scope discovery to — see its own docblock.
  */
 final class SecretRedactor
 {
+    public function __construct(
+        private readonly MinecraftFilesystem $filesystem,
+        private readonly ConfigFormatRegistry $formats,
+        private readonly ConfigSchemaRegistry $schemas,
+    ) {}
+
     /**
      * @param  list<mixed>  $secretValues  Expected to be strings; defensively skips anything else — see the loop below.
      * @param  array<string, string>  $labels  value => human label, for richer disclosures. Optional.
@@ -145,5 +165,81 @@ final class SecretRedactor
         }
 
         return $this->redact($text, array_keys($labels), $labels);
+    }
+
+    /**
+     * Task 19 fix pass: the OTHER convenience callers actually want when
+     * there is no single $configPath to redact against (e.g. App\Support\
+     * SupportBundleService, which writes many files at once, none of them
+     * "the" config file) — every configured Secret value PLUS every
+     * schema `secret: true` field value discoverable across the ENTIRE
+     * mounted Minecraft root right now, not just one already-parsed file.
+     *
+     * Walks App\Filesystem\MinecraftFilesystem::discover() (the same
+     * inventory Task 6/7 already use), resolves each discovered file's
+     * schema (App\Config\Schemas\ConfigSchemaRegistry::forPath()), and —
+     * only for files a schema actually recognizes — reads + parses it and
+     * folds in discoverSchemaSecretLabels(). Deliberately best-effort at
+     * every step (discovery, read, parse each wrapped so one unreadable or
+     * unparsable file can never take the others down with it): a support
+     * bundle (or any other caller of this method) must still generate even
+     * if the Minecraft root is temporarily unmounted, a file was deleted
+     * mid-walk, or a config file is currently malformed — the redaction
+     * pass degrading to "configured secrets only" in that case is far
+     * safer than bundle generation failing outright.
+     *
+     * This exists specifically so a future exporter can reach for ONE
+     * method and get both halves of "known secret" by default, rather
+     * than reimplementing redactKnownSecrets()'s single-file wiring (or,
+     * worse, only wiring up configuredSecretValues() and silently missing
+     * schema-flagged fields like rcon.password / proxies.velocity.secret —
+     * the exact gap this fix closes in SupportBundleService).
+     *
+     * @return array<string, string> value => label (a Secret key, or a schema field path)
+     */
+    public function configuredAndSchemaSecretLabels(): array
+    {
+        $labels = $this->configuredSecretLabels();
+
+        try {
+            $discovered = $this->filesystem->discover();
+        } catch (Throwable) {
+            return $labels;
+        }
+
+        foreach ($discovered as $file) {
+            $schema = $this->schemas->forPath($file->path);
+
+            if ($schema === null) {
+                continue;
+            }
+
+            try {
+                $snapshot = $this->filesystem->read($file->path);
+                $adapter = $this->formats->for($snapshot);
+                $parsed = $adapter->parse($snapshot->contents);
+            } catch (Throwable) {
+                continue;
+            }
+
+            $labels = array_merge($labels, $this->discoverSchemaSecretLabels($parsed, $schema));
+        }
+
+        return $labels;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function configuredAndSchemaSecretValues(): array
+    {
+        // The label map is keyed by VALUE (value => label — see
+        // configuredAndSchemaSecretLabels()'s own docblock), so the
+        // actual secret values are the KEYS here, not array_values().
+        // Mirrors redactKnownSecrets()'s own array_keys($labels) call
+        // just above, not the sibling (and, as of this fix pass,
+        // confirmed unused/dead) configuredSecretValues() method, whose
+        // array_values() is the wrong half of this exact same map.
+        return array_keys($this->configuredAndSchemaSecretLabels());
     }
 }

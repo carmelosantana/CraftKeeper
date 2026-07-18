@@ -40,11 +40,25 @@ use ZipArchive;
  *
  * On top of that structural exclusion, EVERY text file this class writes
  * into the bundle is passed through App\Ai\SecretRedactor::
- * redactKnownSecrets() before being written — a second, independent line
- * of defense so that even a currently-configured secret value that
- * somehow ended up inside a log line or an operation's `outcome` text
- * (rather than being deliberately included from a known-secret table) is
- * still scrubbed before it reaches disk.
+ * configuredAndSchemaSecretValues() (Task 19 fix pass) before being
+ * written — a second, independent line of defense so that even a
+ * currently-configured Secret value, or a schema `secret: true` config
+ * field value (e.g. rcon.password, proxies.velocity.secret) that got
+ * echoed somewhere it shouldn't have been (a log line, an operation's
+ * `outcome` text), is still scrubbed before it reaches disk. Computed
+ * ONCE per bundle (not once per file) and applied uniformly to every
+ * file, including ones that should never contain a secret in the first
+ * place, so a future bug that adds a new field can't silently bypass it.
+ *
+ * Earlier versions of this class called the single-config-path
+ * redactKnownSecrets() instead, which only ever redacted the Secret
+ * store half — there is no single "the config file" for a bundle that
+ * spans the whole application, so the schema-discovered half (every
+ * config file across the mounted Minecraft root, not just one) was
+ * silently never applied here. That gap is what let a schema-flagged
+ * secret value echoed into the Minecraft console (persisted verbatim by
+ * App\Server\LogTailService into App\Models\ConsoleEntry, which does not
+ * itself redact) reach `logs/console-recent.log` unmasked.
  */
 final class SupportBundleService
 {
@@ -88,14 +102,18 @@ final class SupportBundleService
         ];
 
         // Redact every text file against every currently configured
-        // secret value (RCON password, AI API key, ...) — the
-        // belt-and-suspenders pass described in this class's docblock.
-        // Applied uniformly, including to files that should never
-        // contain a secret in the first place, so a future bug that adds
-        // a new field can't silently bypass it.
+        // Secret value AND every schema `secret: true` config field
+        // value discoverable across the mounted Minecraft root (Task 19
+        // fix pass) — the belt-and-suspenders pass described in this
+        // class's docblock. The value set is gathered ONCE here, then
+        // applied uniformly to every file, including ones that should
+        // never contain a secret in the first place, so a future bug
+        // that adds a new field can't silently bypass it.
+        $secretValues = $this->secretRedactor->configuredAndSchemaSecretValues();
+
         $redactedFiles = [];
         foreach ($files as $name => $content) {
-            $redactedFiles[$name] = $this->secretRedactor->redactKnownSecrets($content)->text;
+            $redactedFiles[$name] = $this->secretRedactor->redact($content, $secretValues)->text;
         }
 
         $checksums = [];
@@ -233,10 +251,33 @@ final class SupportBundleService
     }
 
     /**
+     * A PHP stack-trace frame line, e.g.
+     * `#0 /app/Foo.php(42): App\Models\Secret::put('rcon.password', 'super-secret-va...')`
+     * or the terminal `#3 {main}`. PHP's own Exception::getTraceAsString()
+     * (which Monolog's LineFormatter embeds for every logged Throwable)
+     * truncates each string ARGUMENT to 15 characters — so a frame that
+     * happens to pass a secret as an argument leaks exactly enough of it
+     * to defeat exact-value redaction (redact() can only ever match a
+     * COMPLETE known value, never a truncated prefix of one). Stripped
+     * wholesale by recentApplicationLog() rather than attempting to mask
+     * only the argument list, since a frame's argument list is free-form
+     * and not reliably parseable — see that method's docblock.
+     */
+    private const STACK_TRACE_FRAME_PATTERN = '/^\s*#\d+\s+(\S.*\(\d+\):|\{main\})/';
+
+    /**
      * The tail of this application's own log file (never the Minecraft
      * server's raw log — that never leaves the mounted volume through
      * this class). Bounded to the last 64 KiB so a huge log file can
      * never make bundle generation slow or unbounded.
+     *
+     * Task 19 fix pass: a raw tail can include Monolog's rendering of a
+     * logged exception's stack trace, and every frame in it is a
+     * truncated-argument leak risk (see self::STACK_TRACE_FRAME_PATTERN's
+     * own docblock) that App\Ai\SecretRedactor's exact-value matching can
+     * never catch. Every stack-trace frame line is dropped from the tail
+     * before it is returned; the surrounding message/context lines (the
+     * actually useful diagnostic content) are kept untouched.
      */
     private function recentApplicationLog(): string
     {
@@ -263,7 +304,26 @@ final class SupportBundleService
         $tail = stream_get_contents($handle);
         fclose($handle);
 
-        return $tail === false || $tail === '' ? "The application log is currently empty.\n" : $tail;
+        if ($tail === false || $tail === '') {
+            return "The application log is currently empty.\n";
+        }
+
+        return $this->stripStackTraceFrames($tail);
+    }
+
+    /**
+     * @see self::STACK_TRACE_FRAME_PATTERN
+     */
+    private function stripStackTraceFrames(string $tail): string
+    {
+        $lines = preg_split('/\R/', $tail) ?: [$tail];
+
+        $kept = array_filter(
+            $lines,
+            fn (string $line): bool => preg_match(self::STACK_TRACE_FRAME_PATTERN, $line) !== 1,
+        );
+
+        return implode("\n", $kept);
     }
 
     /**
