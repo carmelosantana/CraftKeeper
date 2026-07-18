@@ -149,6 +149,20 @@ RUN { \
         echo 'decorate_workers_output = no'; \
     } > /usr/local/etc/php-fpm.d/www.conf
 
+# Runtime defaults for optional subsystems.
+#
+# BROADCAST_CONNECTION: Laravel's own default (config/broadcasting.php) is
+# `reverb`. routes/channels.php calls Broadcast::channel() during boot, so
+# with no Reverb credentials configured the Reverb driver constructs Pusher
+# with a null auth key and throws a TypeError *before any route runs* —
+# every request, including /up, returns 500. Realtime streaming is optional
+# in CraftKeeper by design, so the container defaults to the null-ish `log`
+# driver (matching .env.example) and degrades gracefully instead of failing
+# closed. Operators who want live console/operation streaming set
+# BROADCAST_CONNECTION=reverb plus the REVERB_* credentials, which overrides
+# this default like any other environment variable.
+ENV BROADCAST_CONNECTION=log
+
 WORKDIR /var/www/html
 
 COPY --from=build --chown=craftkeeper:craftkeeper /app ./

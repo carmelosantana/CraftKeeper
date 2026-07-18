@@ -78,11 +78,21 @@ services:
       QUEUE_CONNECTION: database
       CACHE_STORE: database
       SESSION_DRIVER: database
-      # Matches compose.example.yml's real deployment shape (Reverb, not
-      # 'log') so docker/supervisor/supervisord.conf's `reverb` program
-      # actually has something valid to boot against — a disposable,
-      # non-secret dev key pair (same convention as .env.example's own
-      # comment: "not sensitive, identifies a websocket client").
+      # Exercises the FULLY-CONFIGURED realtime path: Reverb enabled with a
+      # disposable, non-secret dev key pair (same convention as
+      # .env.example's own comment: "not sensitive, identifies a websocket
+      # client"), so docker/supervisor/supervisord.conf's `reverb` program
+      # has something valid to boot against.
+      #
+      # NOTE: this is deliberately NOT the same shape as compose.example.yml,
+      # which documents the minimal deployment and leaves realtime disabled
+      # (BROADCAST_CONNECTION=log). Because this stack supplies REVERB_*
+      # credentials, it cannot catch failures that only appear in the
+      # minimal configuration — an earlier version of this comment claimed
+      # it mirrored compose.example.yml, and that false assumption let a
+      # boot-time 500 on every request ship undetected. The minimal path is
+      # covered by ci.yml's "Boot the image with only compose.example.yml's
+      # documented env" step. Keep both.
       REVERB_APP_ID: "100001"
       REVERB_APP_KEY: "integrationstackkey"
       REVERB_APP_SECRET: "integrationstacksecret"

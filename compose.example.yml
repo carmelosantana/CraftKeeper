@@ -17,6 +17,11 @@ services:
       QUEUE_CONNECTION: database
       CACHE_STORE: database
       SESSION_DRIVER: database
+      # Realtime console/operation streaming is optional. `log` disables it
+      # and is the image default. To enable live streaming, set this to
+      # `reverb` and supply REVERB_APP_ID / REVERB_APP_KEY / REVERB_APP_SECRET
+      # — the reverb driver throws at boot if those are missing.
+      BROADCAST_CONNECTION: log
       # Task 20: set this to your reverse proxy/load balancer's address
       # (or the Docker network CIDR it connects from) so
       # $request->isSecure() correctly reflects X-Forwarded-Proto from a
