@@ -1,0 +1,254 @@
+<?php
+
+namespace App\Console;
+
+use App\Console\Exceptions\InvalidRconPacket;
+use App\Console\Exceptions\RconAuthFailed;
+use App\Console\Exceptions\RconConnectionClosed;
+use App\Console\Exceptions\RconResponseTooLarge;
+use App\Console\Exceptions\RconTimeout;
+
+/**
+ * A bounded Minecraft (Source) RCON client. Every execute() call is a
+ * fresh, short-lived connection: connect -> authenticate -> send the
+ * command (plus a trailing empty "terminator" command) -> read every
+ * response packet until the terminator's own response comes back -> close.
+ * This is the one and only implementation of RconClient.
+ *
+ * Wire format (Task 10's ambiguity resolution #2): int32-LE length,
+ * int32-LE request id, int32-LE type, a NUL-terminated body, then one
+ * more empty NUL. Types: auth=3, exec=2, response=0 (sent by the server
+ * only). Auth failure is signaled by a response whose request id is -1 —
+ * never a distinguishable "packet shape", so it must be checked
+ * explicitly (see authenticate()).
+ *
+ * Multi-packet responses: Source RCON gives no way to tell from a single
+ * packet whether more are coming, so — following the standard workaround
+ * every mainstream RCON client uses — execute() sends a second, empty
+ * exec packet immediately after the real command, using a distinct
+ * request id (TERMINATOR_REQUEST_ID). Response packets carrying the
+ * command's own id are accumulated; the response carrying the
+ * terminator's id is the reliable "no more fragments are coming" signal
+ * (its body, if any, is discarded). A response packet whose id is
+ * neither of those two is a protocol violation (request-id mismatch) and
+ * throws InvalidRconPacket rather than being silently ignored or
+ * misattributed.
+ *
+ * Every request id is fixed per connection (auth=1, command=2,
+ * terminator=3) rather than randomly generated, because a fresh
+ * connection is opened for every single execute() call — there is never
+ * more than one command in flight per connection, so there is no
+ * collision risk, and fixed ids make every test in this suite fully
+ * deterministic.
+ *
+ * Why a hostile length header can never over-read or hang (see
+ * readPacket()/readExactly() below): the 4-byte length header is decoded
+ * and range-checked (10..MAX_PACKET_LENGTH) BEFORE any attempt is made to
+ * read the bytes it claims follow — an oversized or negative-looking
+ * value (e.g. pack('V', 99_999_999)) is rejected immediately, with zero
+ * bytes allocated or read beyond the 4-byte header itself. readExactly()
+ * only ever grows its buffer by however many bytes the transport actually
+ * produced in one call (never more than requested), and on every
+ * empty-string read it consults the transport's own eof()/timedOut()
+ * flags and throws a typed, terminal exception rather than looping again
+ * — so it can only ever iterate a bounded number of times (bounded by the
+ * number of bytes still needed) before either completing or throwing.
+ */
+final class MinecraftRconClient implements RconClient
+{
+    public const CONNECT_TIMEOUT_SECONDS = 3.0;
+
+    public const READ_TIMEOUT_SECONDS = 5.0;
+
+    /** Minimum legal packet length: requestId(4) + type(4) + "" + NUL + NUL. */
+    private const MIN_PACKET_LENGTH = 10;
+
+    /**
+     * A single packet's declared length can never legitimately exceed the
+     * whole-response budget below — anything bigger is definitionally
+     * corrupt or hostile and is rejected before it is ever read.
+     */
+    private const MAX_PACKET_LENGTH = 1_048_576;
+
+    /** Accumulated response budget across every fragment of one command's response. */
+    private const MAX_RESPONSE_BYTES = 1_048_576;
+
+    /**
+     * Belt-and-suspenders against a server (malicious or buggy) that
+     * floods zero-body response packets forever, which would never trip
+     * the byte budget above on its own.
+     */
+    private const MAX_RESPONSE_PACKETS = 10_000;
+
+    private const TYPE_RESPONSE = 0;
+
+    private const TYPE_EXEC = 2;
+
+    private const TYPE_AUTH = 3;
+
+    private const AUTH_REQUEST_ID = 1;
+
+    private const COMMAND_REQUEST_ID = 2;
+
+    private const TERMINATOR_REQUEST_ID = 3;
+
+    public function __construct(
+        private readonly RconTransport $transport,
+        private readonly string $host = '127.0.0.1',
+        private readonly int $port = 25575,
+        private readonly string $password = '',
+    ) {}
+
+    public function execute(RconCommand $command): RconResponse
+    {
+        $this->transport->connect(
+            $this->host,
+            $this->port,
+            self::CONNECT_TIMEOUT_SECONDS,
+            self::READ_TIMEOUT_SECONDS,
+        );
+
+        try {
+            $this->authenticate();
+
+            $this->sendPacket(self::COMMAND_REQUEST_ID, self::TYPE_EXEC, $command->body);
+            $this->sendPacket(self::TERMINATOR_REQUEST_ID, self::TYPE_EXEC, '');
+
+            return new RconResponse($this->readCommandResponse());
+        } finally {
+            $this->transport->close();
+        }
+    }
+
+    private function authenticate(): void
+    {
+        $this->sendPacket(self::AUTH_REQUEST_ID, self::TYPE_AUTH, $this->password);
+
+        $packet = $this->readPacket();
+
+        if ($packet['requestId'] === -1) {
+            throw new RconAuthFailed('RCON authentication failed: the server rejected the configured password.');
+        }
+
+        if ($packet['type'] !== self::TYPE_RESPONSE || $packet['requestId'] !== self::AUTH_REQUEST_ID) {
+            throw new InvalidRconPacket("Received an unexpected RCON auth response (type {$packet['type']}, id {$packet['requestId']}).");
+        }
+    }
+
+    private function readCommandResponse(): string
+    {
+        $accumulated = '';
+        $packetCount = 0;
+
+        while (true) {
+            if (++$packetCount > self::MAX_RESPONSE_PACKETS) {
+                throw new RconResponseTooLarge(strlen($accumulated), self::MAX_RESPONSE_BYTES, 'too many response packets');
+            }
+
+            $packet = $this->readPacket();
+
+            if ($packet['type'] !== self::TYPE_RESPONSE) {
+                throw new InvalidRconPacket("Received an unexpected RCON packet type ({$packet['type']}) while reading a command response.");
+            }
+
+            if ($packet['requestId'] === self::TERMINATOR_REQUEST_ID) {
+                break;
+            }
+
+            if ($packet['requestId'] !== self::COMMAND_REQUEST_ID) {
+                throw new InvalidRconPacket("Received an RCON response with a mismatched request id ({$packet['requestId']}).");
+            }
+
+            $accumulated .= $packet['body'];
+
+            if (strlen($accumulated) > self::MAX_RESPONSE_BYTES) {
+                throw new RconResponseTooLarge(strlen($accumulated), self::MAX_RESPONSE_BYTES);
+            }
+        }
+
+        return $accumulated;
+    }
+
+    private function sendPacket(int $requestId, int $type, string $body): void
+    {
+        $core = $this->packInt32LE($requestId).$this->packInt32LE($type).$body."\x00\x00";
+
+        $this->transport->write($this->packInt32LE(strlen($core)).$core);
+    }
+
+    /**
+     * Read one full packet, reassembling it from as many transport-level
+     * reads as necessary (see the class docblock for why this can never
+     * over-read or hang). The length header is validated before the body
+     * is ever read.
+     *
+     * @return array{requestId: int, type: int, body: string}
+     */
+    private function readPacket(): array
+    {
+        $length = $this->unpackInt32LE($this->readExactly(4));
+
+        if ($length < self::MIN_PACKET_LENGTH || $length > self::MAX_PACKET_LENGTH) {
+            throw new InvalidRconPacket("Received an RCON packet with an invalid length header ({$length} bytes).");
+        }
+
+        $rest = $this->readExactly($length);
+
+        if (substr($rest, -2) !== "\x00\x00") {
+            throw new InvalidRconPacket('Received an RCON packet with a malformed body terminator.');
+        }
+
+        return [
+            'requestId' => $this->unpackInt32LE(substr($rest, 0, 4)),
+            'type' => $this->unpackInt32LE(substr($rest, 4, 4)),
+            'body' => substr($rest, 8, $length - 10),
+        ];
+    }
+
+    /**
+     * Accumulate exactly $length bytes from the transport, looping over
+     * as many partial (fragmented) reads as the transport produces. Each
+     * iteration either appends at least one byte (guaranteed progress
+     * toward the loop's exit condition) or throws immediately on the
+     * transport's own terminal signal (timeout or EOF) — there is no path
+     * that can spin without making progress or throwing.
+     */
+    private function readExactly(int $length): string
+    {
+        $buffer = '';
+
+        while (strlen($buffer) < $length) {
+            $chunk = $this->transport->read($length - strlen($buffer));
+
+            if ($chunk === '') {
+                if ($this->transport->timedOut()) {
+                    throw new RconTimeout('read', 'Timed out waiting for an RCON response.');
+                }
+
+                throw new RconConnectionClosed('The RCON connection was closed before a full packet could be read.');
+            }
+
+            $buffer .= $chunk;
+        }
+
+        return $buffer;
+    }
+
+    private function packInt32LE(int $value): string
+    {
+        return pack('V', $value & 0xFFFFFFFF);
+    }
+
+    private function unpackInt32LE(string $bytes): int
+    {
+        $result = unpack('V', $bytes);
+
+        if ($result === false) {
+            throw new InvalidRconPacket('Failed to decode a 4-byte integer from the RCON stream.');
+        }
+
+        $unsigned = $result[1];
+
+        return $unsigned > 0x7FFFFFFF ? $unsigned - 0x100000000 : $unsigned;
+    }
+}

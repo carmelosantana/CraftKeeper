@@ -191,11 +191,13 @@ it('allows the documented rollback path from both Succeeded and Failed', functio
 it('degrades cleanly to Failed with a typed error code when no handler is registered', function () {
     $admin = User::factory()->create();
 
-    // ConfigApply/ConfigRestore have real handlers as of Task 8 (see
-    // App\Providers\AppServiceProvider); serverStop() still has none
-    // until Task 15, so it remains a faithful "no handler" example here.
+    // ConfigApply/ConfigRestore have real handlers as of Task 8, and
+    // RconCommand/ServerStop as of Task 10 (see
+    // App\Providers\AppServiceProvider); every plugin.* type still has
+    // none until Task 15, so pluginRemove() remains a faithful
+    // "no handler" example here.
     $operation = app(OperationService::class)->propose(
-        OperationRequest::serverStop(),
+        OperationRequest::pluginRemove('example-plugin'),
         OperationAuthor::user($admin->id)
     );
 
@@ -209,13 +211,13 @@ it('degrades cleanly to Failed with a typed error code when no handler is regist
 });
 
 it('never throws when executing an operation type with no registered handler', function () {
-    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginRemove)->create();
 
     expect(fn () => app(OperationService::class)->execute($operation->id))->not->toThrow(Throwable::class);
 });
 
 it('records an execution step alongside the failed operation when no handler is registered', function () {
-    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginRemove)->create();
 
     app(OperationService::class)->execute($operation->id);
 
@@ -279,10 +281,11 @@ it('converts an exception thrown by a handler into a failed operation instead of
 
     app(OperationHandlerRegistry::class)->register($handler);
 
-    // ServerStop (no real handler until Task 15) rather than the
-    // default ConfigApply, which Task 8's own handler would otherwise
+    // PluginUpdate (no real handler until Task 15) rather than the
+    // default ConfigApply, which Task 8's own handler — and, as of Task
+    // 10, RconCommand/ServerStop's real handlers — would otherwise
     // resolve ahead of this test's "supports everything" fake.
-    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginUpdate)->create();
 
     expect(fn () => app(OperationService::class)->execute($operation->id))->not->toThrow(Throwable::class);
 
@@ -312,9 +315,9 @@ it('runs a registered handler and transitions to Succeeded', function () {
 
     app(OperationHandlerRegistry::class)->register($handler);
 
-    // Same reasoning as the preceding test: ServerStop still has no real
-    // handler, so this test's own fake is the only one that resolves.
-    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::ServerStop)->create();
+    // Same reasoning as the preceding test: PluginDisable still has no
+    // real handler, so this test's own fake is the only one that resolves.
+    $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginDisable)->create();
 
     $result = app(OperationService::class)->execute($operation->id);
 

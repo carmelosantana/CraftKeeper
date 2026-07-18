@@ -1453,6 +1453,199 @@ failure) plus a toast explaining what happened — not a dedicated "Retry"
 button. Noted as a disclosed, minor UX gap in the Task 9 report rather
 than a silently-skipped requirement.
 
+## Task 10 — RCON Protocol, Command Policy, and Server Actions
+
+**`RconTransport` is modeled on raw PHP stream semantics
+(`read($maxLength): string` + `eof()`/`timedOut()`), not "read exactly N
+bytes or throw."** This is the one design choice everything else in this
+task hangs off. It is exactly the shape `App\Console\StreamRconTransport`
+naturally wraps (`fread()`/`feof()`/`stream_get_meta_data()['timed_out']`),
+and it is what lets `tests\fixtures\rcon\FakeRconTransport` simulate
+fragmentation (deliver fewer bytes than requested, forcing
+`MinecraftRconClient::readExactly()` to loop) and both terminal read
+conditions (a clean EOF vs. a read-timeout) without ever opening a socket.
+All protocol framing — the length prefix, request id, type, NUL
+terminators, and every size/timeout bound — lives entirely in
+`MinecraftRconClient`; the transport only ever moves bytes. Per the task's
+own ambiguity resolution, `StreamRconTransport`'s real socket I/O is
+deliberately NOT exercised by any test — it implements the identical
+`RconTransport` contract the fake is built against, and
+`MinecraftRconClient` never branches on which implementation it was given,
+so the fake's coverage of the framing logic stands in for it.
+
+**Multi-packet responses use the standard "terminator packet" trick, with
+FIXED request ids (auth=1, command=2, terminator=3), not random ones.**
+Source RCON gives no way to tell from a single packet whether more
+fragments are coming, so `execute()` sends a second, empty exec packet
+immediately after the real command, using a distinct request id. Response
+packets carrying the command's own id are accumulated; the packet carrying
+the terminator's id is the reliable "no more fragments" signal (mirrors
+what mainstream RCON client libraries do — CS:GO/Source RCON has the exact
+same ambiguity). Ids are fixed rather than randomly generated because
+every single `execute()` call opens a brand-new connection (connect ->
+auth -> exec -> close) — there is never more than one command in flight
+per connection, so there is no collision risk, and fixed ids make every
+test in this suite fully deterministic (no randomness to seed or mock).
+
+**The brief's own framing of auth is deliberately simplified from the real
+Source RCON protocol, and this implementation follows the brief literally
+rather than the fuller spec.** Real Source RCON servers reply to
+`SERVERDATA_AUTH` with TWO packets (an empty `SERVERDATA_RESPONSE_VALUE`,
+then a `SERVERDATA_AUTH_RESPONSE` whose id is -1 on failure) — but the
+brief's ambiguity resolution #2 states the model plainly: "Types: auth=3,
+exec=2, response=0... Auth FAILURE = a response whose requestId is -1,"
+i.e. one response packet, checked by id. `authenticate()` implements
+exactly that: send auth, read ONE packet, check its id. This is a
+documented simplification, not an oversight — implementing the two-packet
+handshake would contradict what the brief explicitly specifies and tests
+against, and `FakeRconTransport` only ever needs to queue one auth-ack
+packet across the whole suite as a result.
+
+**A single packet's length cap and the accumulated-response cap are the
+same value (1 MiB / 1,048,576), but they guard different things and throw
+different exceptions.** The per-packet check in `readPacket()` runs on the
+raw 4-byte header BEFORE any read of the claimed body — it exists purely
+to stop a hostile/corrupt length value from ever driving an allocation or
+read (`InvalidRconPacket`, satisfying the brief's exact
+`pack('V', 99_999_999)` test). The accumulated check in
+`readCommandResponse()` runs AFTER each legitimate packet is appended — it
+exists to cap the total size of a real, multi-packet response
+(`RconResponseTooLarge`). Reusing the same numeric value for both was a
+judgment call (the brief specifies "accumulated response ≤ 1 MiB" but
+gives no separate single-packet number); a single packet can never
+legitimately need to be larger than the whole response budget, so capping
+both at the same ceiling is the conservative choice, not an arbitrary one.
+Belt-and-suspenders: `MAX_RESPONSE_PACKETS` (10,000) additionally bounds
+the total number of response packets processed per command, since a
+server that floods zero-body packets forever would never trip the byte
+cap on its own — this defense wasn't explicitly asked for but follows
+directly from the escalation instruction to be rigorous about anything
+that could hang on a hostile packet stream.
+
+**Request-ID mismatch and EOF are each folded into ONE of the four named
+example exception classes, not given their own new classes.** The
+ambiguity resolution lists five failure conditions ("auth-id -1, timeout,
+EOF, invalid/oversized length, and request-ID mismatch") but only names
+four example classes (`InvalidRconPacket`, `RconTimeout`, `RconAuthFailed`,
+`RconResponseTooLarge`). Request-ID mismatch is classified as
+`InvalidRconPacket` (it IS a malformed/unexpected packet condition — the
+server sent something that doesn't fit the protocol conversation in
+progress). EOF gets its own class, `RconConnectionClosed`, kept distinct
+from `RconTimeout` on purpose: "the connection is definitely gone" and "no
+terminal signal arrived within budget" are different facts a caller might
+want to react to differently — specifically, `ServerStopHandler`'s
+documented restart-policy poll (Task 11's surface) needs to tell "the
+server has gone down" from "the server is just slow" to know when it's
+safe to start checking for the server coming back up. Two more classes
+exist beyond the four named ones for conditions the brief requires
+enforcing but doesn't name a class for: `RconCommandTooLarge` (the 4 KiB
+command-body limit) and `CommandNotSafe` (a policy refusal at the
+orchestration layer, not a protocol failure, so it does not implement the
+shared `RconException` marker interface the other five do).
+
+**`App\Console\RconCommandService` and `App\Models\RconCommandPayload`
+exist beyond the brief's literal file list because the secret-shaped
+command redaction requirement (ambiguity resolution #6) has nowhere else
+to live.** Nothing in Task 5 or this task's named files owns "turn a raw
+console command into an Operation while keeping secret-shaped text out of
+`Operation.target`/`redacted_input`" — and Task 12 (Console UI) is
+explicitly out of scope for this task, so it cannot be the one to apply
+CommandPolicy-based redaction either. `RconCommandPayload` mirrors
+`App\Models\ConfigChangePayload`'s exact pattern from Task 8 (its own
+single-purpose, `#[Hidden]`, `encrypted`-cast table, read by exactly one
+caller) for the identical reason: Task 5's migration documents, as a
+tested invariant, that every persisted "input"-shaped column on
+`operations`/`change_proposals`/`audit_events` holds only pre-redacted
+data, never a raw secret. Most console commands (`stop`, `op Steve`,
+`ban Steve`, `gamerule ...`) are NOT secret-shaped and never get a payload
+row at all — `RconCommandService::proposeCommand()` only creates one when
+`CommandPolicy::looksLikeSecret()` is true; every other command's real
+text is simply the operation's own (unredacted-but-non-secret)
+`redacted_input['command']`, exactly as Task 5's existing
+`OperationRequest::rconCommand()` factory already stores it.
+
+**`CommandPolicy::looksLikeSecret()` combines a command-NAME allow-list
+(`login`, `register`, `changepassword`, `setpassword`, `passwd`) with a
+content regex, because content-only detection misses the realistic case.**
+`App\Operations\InputRedactor`'s existing approach — matching a keyword
+like "password" — works for structured `key => value` metadata but not
+for freeform RCON command text: a real AuthMe-style plugin command like
+`login mySecretPass123` contains no literal "password" substring at all.
+The content regex (mirroring `InputRedactor`'s keyword list, applied to
+free text) still exists as a fallback/catch-all for the cases it CAN catch
+(`password=...`, `token: ...`), but the command-name list is what actually
+catches the realistic case. Both are deliberately narrow/predefined
+(matching the brief's own "configured secret patterns" phrasing) rather
+than a broad heuristic that could either over-redact ordinary elevated
+commands or, worse, be tricked into under-redacting.
+
+**The "lighter path" for safe predefined actions
+(`RconCommandService::runSafeCommand()`) still requires a real,
+authenticated `App\Models\User` — there is no system-auto-approve path.**
+`App\Operations\OperationService::approve()` is human-only at the type
+level (Task 5) and this task does not touch that; "lighter" means
+propose+approve+execute happen in one call instead of two separate
+round-trips (skipping a UI confirmation step, not skipping the human).
+`runSafeCommand()` refuses outright — never proposing anything, so there
+is nothing left over to clean up — for any command `CommandPolicy` does
+not classify as `Safe`, which is what makes "the handler must never invoke
+a mutation transport for an unapproved/unclassified command" true for this
+path specifically (the general case is already structurally guaranteed by
+`OperationService`'s state machine, which only ever calls
+`OperationHandler::execute()` after a genuine `Proposed -> Approved ->
+Running` transition).
+
+**`OperationService::reject()` (a Task 5 file) was extended with one more
+line — `RconCommandPayload::deleteForOperation($operation->id)` —
+symmetric with its existing `ConfigChangePayload::deleteForOperation()`
+call.** Without this, a rejected operation whose command was secret-shaped
+would leave its raw text sitting in the payload table indefinitely (never
+cleaned up, since only `RconCommandHandler::execute()` deletes it, and
+`execute()` never runs for a rejected operation). This is the exact same
+class of data-minimization gap Task 5/8 already knowingly accepted for
+`ConfigChangePayload` on a Proposed operation that simply expires without
+ever being approved, executed, or rejected (documented in that model's own
+class docblock) — rather than leave a second, avoidable instance of it,
+this task closed it the same cheap way Task 5 already established the
+precedent for. Verified with the full `Operations` feature suite
+(`OperationServiceTest`, `AuditEventTest`, etc.) after the change — zero
+regressions.
+
+**A real conflict with Task 5's own test suite was found and fixed:
+several `tests/Feature/Operations/*` tests hard-coded
+`OperationType::ServerStop` as "the type with no handler until Task 15."**
+Task 5's report is explicit about this assumption ("serverStop() still has
+none until Task 15, so it remains a faithful 'no handler' example here")
+— but this task's own brief assigns `ServerStopHandler` to
+`OperationType::ServerStop`, not Task 15. Registering it via the
+`operation.handler` container tag (as the brief requires) would have
+silently broken `OperationServiceTest`'s "degrades cleanly to Failed when
+no handler is registered" tests (which would start actually running the
+real handler — and, since those tests never inject a fake transport,
+`ServerStopHandler` would attempt to open a REAL socket via the container's
+`RconClient` binding) and would have broken the "runs a registered handler
+and transitions to Succeeded"-style tests (whose own fake, test-local
+handler would no longer be the first match in the registry). Fixed by
+switching those specific tests' canary type from `ServerStop` to whichever
+`plugin.*` `OperationType` was still free at each call site
+(`PluginRemove`, `PluginUpdate`, `PluginDisable` — chosen to be distinct
+across tests for readability, not because it matters functionally), and
+updating `OperationHandlerRegistryTest`'s container-tag test to assert
+`RconCommandHandler`/`ServerStopHandler` are now resolved instead of
+`null`. Full suite re-verified green (376 tests, 366 passed, 10
+pre-existing skips, 0 regressions) after the fix.
+
+**`tests/fixtures/rcon/FakeRconTransport.php` uses the lowercase namespace
+`Tests\fixtures\rcon`, not the more conventional `Tests\Fixtures\Rcon`.**
+PSR-4 autoloading is case-sensitive on Linux — Composer's autoloader
+builds the file path directly from the namespace segments — and the
+brief's file list specifies the lowercase directory path verbatim
+(`tests/fixtures/rcon/`). The namespace segments were made to match the
+directory's actual casing exactly rather than renaming the directory to
+fit a more conventional namespace, since the brief's path is the more
+load-bearing constraint. Verified empirically (`composer dump-autoload`
++ `class_exists()`) before writing any test against it, not assumed.
+
 ## Milestone 2 Gate Fix — E2E Suite Isolation (Order-Independent Full Suite)
 
 **Bug: `npm run e2e` failed 1/13 (`onboarding.spec.ts`'s "first-run setup

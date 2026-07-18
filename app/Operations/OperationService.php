@@ -8,6 +8,7 @@ use App\Models\ChangeProposal;
 use App\Models\ConfigChangePayload;
 use App\Models\Operation;
 use App\Models\OperationStep;
+use App\Models\RconCommandPayload;
 use App\Models\User;
 use App\Operations\Exceptions\IllegalOperationTransition;
 use Illuminate\Support\Facades\DB;
@@ -140,6 +141,13 @@ class OperationService
             // delete-only call here doesn't compromise its "never read
             // outside the two config handlers" invariant.
             ConfigChangePayload::deleteForOperation($operation->id);
+
+            // Symmetric with the above, for Task 10's secret-shaped RCON
+            // command payloads (App\Models\RconCommandPayload) — also a
+            // no-op for every operation type except a rejected,
+            // secret-shaped rcon.command whose raw text was stashed by
+            // App\Console\RconCommandService::proposeCommand().
+            RconCommandPayload::deleteForOperation($operation->id);
 
             $this->audit($operation, 'operation.rejected', $author, ['reason' => $reason]);
             $this->broadcast($operation);
