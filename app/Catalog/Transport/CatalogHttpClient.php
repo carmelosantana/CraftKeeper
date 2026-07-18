@@ -69,7 +69,7 @@ final class CatalogHttpClient
                     // (confirmed empirically: Http::fake() + assertSentCount).
                     $config['retries'] + 1,
                     $config['retry_delay_ms'],
-                    when: fn (Throwable $exception): bool => $this->isIdempotentTransientFailure($exception),
+                    when: fn (?Throwable $exception): bool => $this->isIdempotentTransientFailure($exception),
                     throw: false,
                 )
                 ->get($url, $query);
@@ -117,9 +117,23 @@ final class CatalogHttpClient
      * "idempotent transient errors only": a 4xx means the request was
      * understood and rejected (retrying it verbatim would never
      * succeed), so it must return false here.
+     *
+     * $exception is nullable — not merely defensively, but because
+     * Illuminate\Http\Client\PendingRequest::send() calls the `when`
+     * closure with `$response->toException()` for every non-2xx
+     * response it doesn't otherwise throw for, and that returns null
+     * whenever the response is neither successful() (2xx) NOR
+     * failed() (4xx/5xx) — e.g. a 304. Since a 304 is this class's own
+     * intended, correctly-handled outcome (see the class docblock and
+     * the 304 short-circuit in get()), it must never be treated as a
+     * transient failure worth retrying.
      */
-    private function isIdempotentTransientFailure(Throwable $exception): bool
+    private function isIdempotentTransientFailure(?Throwable $exception): bool
     {
+        if ($exception === null) {
+            return false;
+        }
+
         if ($exception instanceof ConnectionException) {
             return true;
         }

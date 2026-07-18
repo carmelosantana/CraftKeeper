@@ -94,15 +94,56 @@ it('stores an unreachable ServerSample when the connection times out', function 
 */
 
 it('does not attempt RCON again (no new sample) while still within the backoff window after a failure', function () {
+    // RetryBackoff's random source is injectable specifically so tests
+    // can assert exact, deterministic delays (see its docblock) instead
+    // of relying on "a real random source makes some nonzero delay
+    // virtually certain" — which can flake if the real source ever
+    // returns exactly 0.0. Pinning it at its maximum (1.0) makes
+    // nextDelaySeconds(1) a KNOWN, fixed value: BASE_SECONDS (15.0) *
+    // 2^0 * 1.0 = 15.0 seconds, every single run.
+    //
+    // SampleServerState::handle() resolves RetryBackoff via HANDLE-METHOD
+    // injection (see that class's docblock), so binding this instance in
+    // the container is picked up by the very next Artisan::call() — no
+    // production code change needed, this is the existing seam.
+    app()->instance(RetryBackoff::class, new RetryBackoff(fn () => 1.0));
+
     bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
 
+    $start = now();
+    CarbonImmutable::setTestNow($start);
+
     Artisan::call('server:sample-state');
     expect(ServerSample::query()->count())->toBe(1);
 
-    // Immediately try again — the fake real random source means SOME
-    // nonzero delay is virtually certain, so this tick should be a no-op.
+    // Still one second short of the known 15.0s delay — deterministically
+    // still backing off, not "probably" backing off.
+    CarbonImmutable::setTestNow($start->addSeconds(14));
     Artisan::call('server:sample-state');
     expect(ServerSample::query()->count())->toBe(1);
+
+    CarbonImmutable::setTestNow();
+});
+
+it('attempts RCON again exactly when the known, fixed backoff delay elapses — not a moment sooner', function () {
+    // Same deterministic pin as above, asserting the OTHER side of the
+    // exact boundary: at precisely the 15.0s delay, the tick is no
+    // longer a no-op.
+    app()->instance(RetryBackoff::class, new RetryBackoff(fn () => 1.0));
+
+    bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
+
+    $start = now();
+    CarbonImmutable::setTestNow($start);
+
+    Artisan::call('server:sample-state');
+    expect(ServerSample::query()->count())->toBe(1);
+
+    CarbonImmutable::setTestNow($start->addSeconds(15));
+    Artisan::call('server:sample-state');
+    expect(ServerSample::query()->count())->toBe(2);
+
+    CarbonImmutable::setTestNow();
 });
 
 it('attempts RCON again once the backoff window has elapsed', function () {

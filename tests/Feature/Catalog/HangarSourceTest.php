@@ -5,6 +5,7 @@ use App\Catalog\Data\PluginReleaseId;
 use App\Catalog\Data\PluginSearchQuery;
 use App\Catalog\Exceptions\PluginReleaseNotFound;
 use App\Catalog\Sources\HangarSource;
+use App\Models\CatalogCacheEntry;
 use App\Plugins\PluginProvenance;
 use Illuminate\Support\Facades\Http;
 
@@ -170,6 +171,61 @@ it('attempts a live fetch again once the 15-minute freshness window has passed',
 
     $this->source->search(new PluginSearchQuery);
     Http::assertSentCount(2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| ETag/Last-Modified conditional revalidation — same mechanism as
+| CraftKeeperCatalogSourceTest, exercised against a query-scoped Hangar
+| cache row instead of the query-independent catalog document.
+|--------------------------------------------------------------------------
+*/
+
+it('sends the stored ETag/Last-Modified as conditional headers on revalidation, serves the cached page (not re-normalized) on a 304, and extends freshness', function () {
+    $etag = 'W/"hangar-etag-v1"';
+    $lastModified = 'Wed, 21 Oct 2015 07:28:00 GMT';
+
+    Http::fake([
+        'hangar.papermc.io/api/v1/projects?*' => function ($request) use ($etag, $lastModified) {
+            if ($request->hasHeader('If-None-Match')) {
+                return Http::response('', 304, ['ETag' => $etag, 'Last-Modified' => $lastModified]);
+            }
+
+            return Http::response(hangarFixture('search-projects'), 200, ['ETag' => $etag, 'Last-Modified' => $lastModified]);
+        },
+    ]);
+
+    $firstPage = $this->source->search(new PluginSearchQuery);
+    Http::assertSentCount(1);
+    expect($firstPage->items)->toHaveCount(2);
+
+    $entry = CatalogCacheEntry::query()->where('source', 'Hangar')->sole();
+    expect($entry->etag)->toBe($etag)
+        ->and($entry->last_modified)->toBe($lastModified);
+    $freshUntilAfterFirstFetch = $entry->fresh_until;
+
+    $this->travel(16)->minutes();
+
+    $secondPage = $this->source->search(new PluginSearchQuery);
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn ($request) => $request->hasHeader('If-None-Match', $etag)
+        && $request->hasHeader('If-Modified-Since', $lastModified));
+
+    expect($secondPage->items)->toHaveCount(2)
+        ->and(array_map(fn (PluginRelease $r) => $r->id->projectId, $secondPage->items))
+        ->toBe(array_map(fn (PluginRelease $r) => $r->id->projectId, $firstPage->items))
+        ->and($secondPage->sourceResults[0]->degraded)->toBeFalse()
+        ->and($secondPage->sourceResults[0]->servedFromCache)->toBeFalse(); // a live 304 is still a "live" attempt, not a skipped-fetch cache hit
+
+    $entry->refresh();
+    expect($entry->fresh_until->gt($freshUntilAfterFirstFetch))->toBeTrue();
+
+    // A third search inside the NEW freshness window never hits HTTP.
+    $this->travel(10)->minutes();
+    $thirdPage = $this->source->search(new PluginSearchQuery);
+    Http::assertSentCount(2);
+    expect($thirdPage->sourceResults[0]->servedFromCache)->toBeTrue();
 });
 
 /*

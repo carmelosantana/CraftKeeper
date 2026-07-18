@@ -172,3 +172,76 @@ it('filters search results by requested Minecraft version', function () {
     expect($page->items)->toHaveCount(1)
         ->and($page->items[0]->slug)->toBe('essentialsx');
 });
+
+/*
+|--------------------------------------------------------------------------
+| ETag/Last-Modified conditional revalidation (App\Catalog\Transport\
+| CatalogHttpClient) — a validator returned on the first 200 is persisted
+| alongside the cache row, sent back as If-None-Match/If-Modified-Since
+| once the 15-minute freshness window elapses, and a 304 short-circuits
+| to the CACHED payload (no re-normalization) while
+| CatalogCache::touchFreshness() extends the freshness window so the
+| NEXT read doesn't re-hit HTTP either.
+|--------------------------------------------------------------------------
+*/
+
+it('stores the ETag/Last-Modified from the first 200, sends them back as conditional headers on revalidation, serves the cached payload (not re-normalized) on a 304, and extends freshness', function () {
+    $etag = '"catalog-etag-v1"';
+    $lastModified = 'Wed, 21 Oct 2015 07:28:00 GMT';
+
+    // A single Http::fake() stub for the whole test (see
+    // UnifiedCatalogServiceTest's docblock for why a second Http::fake()
+    // call would not replace this one): it inspects the OUTGOING request
+    // itself — a real conditional revalidation only ever happens once a
+    // cached validator exists, so seeing If-None-Match on the wire is
+    // itself proof the code reached that branch, not merely an assumption.
+    Http::fake([
+        'raw.githubusercontent.com/*' => function ($request) use ($etag, $lastModified) {
+            if ($request->hasHeader('If-None-Match')) {
+                return Http::response('', 304, ['ETag' => $etag, 'Last-Modified' => $lastModified]);
+            }
+
+            return Http::response(craftKeeperFixtureRaw('catalog-basic'), 200, ['ETag' => $etag, 'Last-Modified' => $lastModified]);
+        },
+    ]);
+
+    $firstPage = $this->source->search(new PluginSearchQuery);
+    Http::assertSentCount(1);
+    expect($firstPage->items)->not->toBeEmpty();
+
+    $entry = CatalogCacheEntry::query()->where('source', 'Catalog')->sole();
+    expect($entry->etag)->toBe($etag)
+        ->and($entry->last_modified)->toBe($lastModified);
+    $freshUntilAfterFirstFetch = $entry->fresh_until;
+
+    // Past the 15-minute freshness window — the next search() attempts a
+    // live fetch again, which is the revalidation trigger.
+    $this->travel(16)->minutes();
+
+    $secondPage = $this->source->search(new PluginSearchQuery);
+
+    Http::assertSentCount(2);
+    // The stored validator values were SENT, not just any headers — a
+    // regression that drops them (or sends stale/blank ones) fails here.
+    Http::assertSent(fn ($request) => $request->hasHeader('If-None-Match', $etag)
+        && $request->hasHeader('If-Modified-Since', $lastModified));
+
+    // Served from the CACHED payload — identical items, not a
+    // re-normalized document — and never labeled degraded.
+    expect(array_map(fn ($r) => $r->version, $secondPage->items))
+        ->toBe(array_map(fn ($r) => $r->version, $firstPage->items))
+        ->and($secondPage->sourceResults[0]->degraded)->toBeFalse();
+
+    // touchFreshness() extended the window past what it was right after
+    // the first fetch (a regression that never reaches notModified()
+    // would leave this untouched, or would instead go through put()).
+    $entry->refresh();
+    expect($entry->fresh_until->gt($freshUntilAfterFirstFetch))->toBeTrue();
+
+    // A third search inside the NEW freshness window is a pure cache
+    // hit — no third HTTP call at all.
+    $this->travel(10)->minutes();
+    $thirdPage = $this->source->search(new PluginSearchQuery);
+    Http::assertSentCount(2);
+    expect($thirdPage->sourceResults[0]->servedFromCache)->toBeTrue();
+});
