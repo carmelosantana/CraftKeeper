@@ -73,6 +73,30 @@ it('parses a kick with no explicit reason', function () {
 
 /*
 |--------------------------------------------------------------------------
+| Chat is classified before kick — a <...>-prefixed chat body that
+| happens to start with "was kicked" is still chat, never misread as a
+| Kick event with a bracketed "player" name.
+|--------------------------------------------------------------------------
+*/
+
+it('classifies a chat line whose body starts with "was kicked" as Chat, not Kick', function () {
+    $events = app(LogParser::class)->parse(['[12:00:00 INFO]: <Steve> was kicked for being awesome']);
+
+    expect($events[0]->kind)->toBe(LogEventKind::Chat)
+        ->and($events[0]->player)->toBe('Steve')
+        ->and($events[0]->message)->toBe('was kicked for being awesome');
+});
+
+it('still classifies a real, unprefixed kick line as Kick', function () {
+    $events = app(LogParser::class)->parse(['[12:24:27 WARN]: .aacarm was kicked for floating too long!']);
+
+    expect($events[0]->kind)->toBe(LogEventKind::Kick)
+        ->and($events[0]->player)->toBe('.aacarm')
+        ->and($events[0]->message)->toBe('floating too long!');
+});
+
+/*
+|--------------------------------------------------------------------------
 | The classic thread-qualified logs/latest.log envelope
 |--------------------------------------------------------------------------
 */

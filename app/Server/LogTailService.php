@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\File;
  * path rather than caller-supplied input.
  *
  * Rotation/truncation correctness (the property this class exists to get
- * right — "never drop a line"):
+ * right, and does — WITH one narrow, disclosed exception described below,
+ * "the rotation-straggler window" — "never drop a line"):
  *
  *   - The tailing position is persisted between calls as a
  *     App\Server\TailCursor {inode, offset} JSON file under
@@ -37,6 +38,26 @@ use Illuminate\Support\Facades\File;
  *     file. This is checked BEFORE the file is ever opened for reading,
  *     so a rotation can never cause old-file bytes to be misread as
  *     belonging to the new file.
+ *   - DISCLOSED LIMITATION — the rotation-straggler window: this inode
+ *     check only stops old-file bytes from being MISREAD as new-file
+ *     bytes; it cannot recover bytes the old inode received AFTER this
+ *     class's last successful read but BEFORE rotation moved that inode
+ *     out from under this path. Real Minecraft/log4j2 rotates
+ *     `logs/latest.log` straight to a gzip archive on server restart
+ *     (`filePattern=".../%d.log.gz"`), with an unpredictable,
+ *     date/index-derived archive filename — there is no cheap, reliable
+ *     way for a scheduled (non-daemon) tailer like this one to locate that
+ *     archive, decompress it, and drain the handful of straggler bytes
+ *     within a single tick, so no such recovery is attempted. In practice
+ *     this window is only ever a few lines wide (bounded by how much the
+ *     server can log between one tick and the next restart) and only
+ *     opens around a server restart — frequent scheduled tailing (this
+ *     runs every few seconds; see App\Server docs above) is what keeps it
+ *     narrow. This is an accepted V1 trade-off, consistent with "no
+ *     long-term log storage in V1" and best-effort observation — see
+ *     docs/architecture/decisions.md ("Task 11 Fix — Rotation-Straggler
+ *     Window") for the full reasoning, and LogTailServiceTest's "rotation
+ *     straggler" test for a characterization of the exact behavior.
  *   - Independently, if the SAME inode's current size is smaller than the
  *     cursor's stored offset, the file was truncated in place (e.g. a
  *     `copytruncate`-style log rotation strategy, or Minecraft itself
@@ -179,7 +200,18 @@ final class LogTailService
         }
 
         if ($cursor->inode !== $inode) {
-            // Rotated: a new inode exists at this path.
+            // Rotated: a new inode exists at this path. Resetting to 0
+            // here is what prevents old-file bytes from being misread as
+            // belonging to the new file — but it does NOT recover any
+            // bytes the old (now-gone) inode received between our last
+            // read and the moment it was rotated away: those bytes live
+            // only in whatever archive the rotation produced (typically a
+            // gzip file with an unpredictable name for real Minecraft/
+            // log4j2 rotation), which this class deliberately does not
+            // chase. This is a disclosed, accepted gap — "the
+            // rotation-straggler window" — not an oversight; see this
+            // class's docblock and docs/architecture/decisions.md ("Task
+            // 11 Fix — Rotation-Straggler Window").
             return 0;
         }
 

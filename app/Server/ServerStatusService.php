@@ -57,6 +57,15 @@ final class ServerStatusService
             return RconStatus::unavailable('The last successful RCON sample is stale.');
         }
 
+        if ($sample->player_count === null) {
+            // RCON was reachable, but the sampler could not parse a player
+            // count out of the "list" response (App\Console\Commands\
+            // SampleServerState's own "unrecognized response" case) — this
+            // is a known-unknown, never reported as a fabricated
+            // "available" with a null count.
+            return RconStatus::unavailable($sample->error_reason ?? 'RCON connected, but the player list response was unreadable.');
+        }
+
         return RconStatus::available($sample->player_count, $sample->player_names, $sample->sampled_at);
     }
 

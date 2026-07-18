@@ -167,3 +167,22 @@ it('distinguishes a genuinely known zero (RCON reachable, 0 players online) from
         ->and($snapshot->rcon->playerCount)->toBe(0)
         ->and($snapshot->rcon->playerNames)->toBe([]);
 });
+
+it('reports unavailable, not a fabricated "available", when RCON is reachable but the sample carries a null player count (unrecognized "list" response)', function () {
+    withLogFile($this->minecraftRoot);
+
+    ServerSample::query()->create([
+        'sampled_at' => now(),
+        'rcon_reachable' => true,
+        'player_count' => null,
+        'player_names' => null,
+        'error_reason' => 'The server returned an unrecognized response to "list".',
+    ]);
+
+    $snapshot = statusService()->snapshot();
+
+    expect($snapshot->rcon->available)->toBeFalse()
+        ->and($snapshot->rcon->reason)->not->toBeNull()
+        ->and($snapshot->rcon->playerCount)->toBeNull()
+        ->and($snapshot->rcon->playerNames)->toBeNull();
+});

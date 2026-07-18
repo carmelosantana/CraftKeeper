@@ -92,6 +92,15 @@ final class LogParser
 
     private function classifyMessage(string $message, string $raw): ?LogEvent
     {
+        // Chat is checked FIRST, ahead of every other kind: its "<Name>
+        // message" shape has an unambiguous "<...>" prefix marker that
+        // join/leave/kick lines never produce, so a chat message a player
+        // literally typed (e.g. "<Steve> was kicked for being awesome")
+        // can never be misclassified as one of those other kinds.
+        if (preg_match(self::VANILLA_CHAT, $message, $matches) === 1) {
+            return new LogEvent(LogEventKind::Chat, $matches[1], null, $matches[2], $raw);
+        }
+
         if (preg_match(self::FLOODGATE_JOIN, $message, $matches) === 1) {
             return new LogEvent(LogEventKind::Join, $matches[1], PlayerPlatform::Bedrock, null, $raw);
         }
@@ -106,10 +115,6 @@ final class LogParser
 
         if (preg_match(self::VANILLA_KICK, $message, $matches) === 1) {
             return new LogEvent(LogEventKind::Kick, $matches[1], null, $matches[2] ?? null, $raw);
-        }
-
-        if (preg_match(self::VANILLA_CHAT, $message, $matches) === 1) {
-            return new LogEvent(LogEventKind::Chat, $matches[1], null, $matches[2], $raw);
         }
 
         return null;

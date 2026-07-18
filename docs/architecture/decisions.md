@@ -1973,3 +1973,118 @@ endpoint; `ConsoleEntry` is a bounded recent buffer, not a searchable log
 index — "arbitrary historical log search stays on disk," i.e. the
 Minecraft server's own log files, untouched and unindexed by
 CraftKeeper.
+
+## Task 11 Fix — Three Post-Review Corrections
+
+Three issues were found in a follow-up review of Task 11 and fixed in one
+pass: `App\Server\ServerStatusService::rconStatus()` could report
+`available: true` with a `null` player count; `App\Server\LogParser`
+checked the Kick pattern before Chat, so a chat message that happened to
+start with "was kicked" misclassified as a Kick; and `App\Server\
+LogTailService`'s "never drop a line" guarantee had an undisclosed gap at
+log rotation. The first two are straightforward bug fixes with RED→GREEN
+tests (`ServerStatusServiceTest`, `LogParserTest`). The third is
+documented in detail here because it is a disclosure fix, not a behavior
+fix — the underlying gap was not eliminated, because it cannot be, cheaply
+and reliably, in this architecture.
+
+**"No fabricated 'available'": a `null` player count is now `unavailable`,
+never `available` with `playerCount: null`.** `App\Console\Commands\
+SampleServerState::parseListResponse()` already had a real, legitimate
+case that produces `rcon_reachable: true, player_count: null` — an
+"unrecognized response to `list`" (a `ServerSample` row it deliberately
+still records, with `error_reason` set, rather than silently swallowing
+the tick). `ServerStatusService::rconStatus()` didn't check for this: it
+returned `RconStatus::available($sample->player_count, ...)` for ANY
+fresh, reachable sample, so this specific case surfaced as `available:
+true, playerCount: null` — neither a known value nor "Unavailable",
+contradicting `RconStatus`'s own docblock invariant ("$playerCount is
+ALWAYS null when $available is false... never a fabricated 0/empty
+list") and the brief's "Unknown data displays 'Unavailable' with a
+reason." `rconStatus()` now checks `$sample->player_count === null`
+*before* returning `available(...)` and returns `RconStatus::unavailable($sample->error_reason
+?? '...')` instead — reusing the sample's own recorded reason when
+present. A genuinely observed zero (`rcon_reachable: true, player_count:
+0`) is a distinct, different condition (`0 !== null` in PHP) and
+continues to report `available` with count `0`, unaffected by this
+change — regression-tested directly alongside the new case.
+
+**Chat is classified before Kick (and every other kind) in
+`LogParser::classifyMessage()`.** The Kick pattern
+(`/^(\S+) was kicked(?:\s+for\s+(.+))?$/u`) was checked before the Chat
+pattern (`/^<(\S+)>\s(.*)$/u`). A chat line whose body a player literally
+typed to start with "was kicked" — e.g. `<Steve> was kicked for being
+awesome`, a real, harmless in-game message — matched the Kick pattern
+first (`(\S+)` greedily matches `<Steve>` including the brackets) and was
+misclassified as `LogEventKind::Kick` with `player === '<Steve>'` (brackets
+and all) rather than `LogEventKind::Chat` with `player === 'Steve'`. Chat's
+`<...>` prefix is a marker no join/leave/kick line legitimately produces,
+so checking it first is strictly safer and cannot mask a real Kick/Join/
+Leave line (none of those shapes start with `<`). Both the brief's own
+verbatim unprefixed-kick test (`.aacarm was kicked for floating too
+long!`) and the existing Floodgate/join/leave tests are unaffected —
+reordering only changes outcomes for a message that would have matched
+*both* patterns, which is exactly and only the `<Name> was kicked...`
+chat case.
+
+**The rotation-straggler window — documented, not eliminated, because a
+cheap and reliable fix does not exist for this rotation model.**
+`App\Server\LogTailService`'s docblock and `ServerStatusServiceTest`
+already documented ingestion as "at-least-once" for the crash-between-
+commit-and-cursor-write case (a batch can be *duplicated*, never
+silently dropped). What was never disclosed anywhere is a second,
+different failure mode at log ROTATION specifically: `resolveOffset()`
+detects a changed inode and correctly resets to reading the new file from
+offset 0 — this is what stops old-file bytes from being misread as
+belonging to the new file — but it has no mechanism to recover bytes the
+OLD inode received AFTER this class's last successful `tail()` call and
+BEFORE the rotation moved that inode out from under `logs/latest.log`.
+Those bytes are not corrupted or duplicated; they are simply never read
+by this class again, because nothing in `tail()` ever looks at the old,
+now-unreferenced inode a second time.
+
+Whether this is fixable cheaply depends entirely on what the rotation
+*produces*. Real Minecraft/Paper's default log4j2 configuration rotates
+`logs/latest.log` straight to a **gzip archive** on server restart
+(`filePattern=".../%d{yyyy-MM-dd}-%i.log.gz"` is the standard Paper/
+vanilla pattern) — the archive's exact filename depends on the current
+date and a same-day rotation index that isn't known in advance, and its
+content is compressed. For a scheduled, non-daemon tailer like this one
+(re-invoked fresh on every tick, per `App\Server\LogTailService`'s own
+docblock — never a long-running process watching the filesystem live)
+there is no cheap, reliable way to (a) discover that archive's name
+without directory-listing/globbing `logs/` on every rotation-suspicious
+tick, (b) confirm it is in fact the freshly-rotated file and not some
+older archive or an unrelated `.gz` file an admin/plugin placed there,
+and (c) decompress and re-scan it for exactly the byte range past the
+old cursor's offset — all within one bounded tick, without turning a
+15-second-interval health/log poll into an unbounded filesystem-scanning
+job. Given that, implementing a mitigation here would be exactly the
+"fragile" outcome this fix pass was explicitly told to avoid; **no
+mitigation was implemented.** (For contrast: had this project's rotation
+model instead produced an uncompressed sibling at a fixed, predictable
+path — e.g. a `copytruncate`-style strategy renaming to a single known
+`.1` suffix — draining it before resetting to offset 0 would have been a
+reasonable, cheap addition. That is not this project's actual rotation
+model, so it was not built.)
+
+In practice the window this leaves open is narrow: it only opens around a
+server restart (the only time real rotation happens) and is bounded by
+however much the server logs in the gap between one tick and the next —
+frequent scheduled tailing (this runs on a short interval; see
+`App\Server\LogTailService`'s docblock) is precisely what keeps that gap
+small, typically a handful of lines at most, never an unbounded amount.
+This is accepted as a V1 limitation, consistent with the plan's own "no
+long-term log storage in V1" scope and "best-effort observation" framing
+— CraftKeeper's console view is an operational aid, not an
+audit-grade, gapless log archive (arbitrary historical log search
+already, deliberately, stays on the Minecraft server's own on-disk log
+files, per the note above). The gap is now disclosed in three places so
+it cannot be mistaken for a stronger guarantee than actually holds:
+`LogTailService`'s class docblock, an inline comment at the exact
+`resolveOffset()` inode-change branch that causes it, and a dedicated
+`LogTailServiceTest` case ("characterizes the disclosed rotation-straggler
+window...") that writes a straggler line to the pre-rotation file,
+rotates, and asserts that line is genuinely absent afterward — pinning
+the actual behavior so a future change that silently makes this worse (or
+better) shows up as a test change, not a surprise.

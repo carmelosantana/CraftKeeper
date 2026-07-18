@@ -144,6 +144,49 @@ it('resets to offset 0 and processes only new content when the log file is rotat
         ->and(array_count_values($lines)['[10:00:00 INFO]: old line one'] ?? 0)->toBe(1);
 });
 
+it('characterizes the disclosed rotation-straggler window: bytes appended to the OLD inode after the last tail() but before rotation are not recovered', function () {
+    // This is NOT a bug being fixed — it pins the documented, accepted V1
+    // trade-off (see LogTailService's class docblock and
+    // docs/architecture/decisions.md, "Task 11 Fix — Rotation-Straggler
+    // Window"): perfect no-drop across a real gzip-archiving rotation
+    // isn't achievable by a scheduled (non-daemon) tailer, so this test
+    // documents exactly what happens instead of leaving it undiscovered.
+    file_put_contents($this->logPath, "[10:00:00 INFO]: already tailed before rotation\n");
+    $first = tailService()->tail();
+    expect($first->linesProcessed)->toBe(1);
+
+    // A "straggler" line is written to the SAME (still-old) inode AFTER
+    // the last successful tail() but BEFORE rotation happens — simulating
+    // a burst of server output right before a restart triggers rotation.
+    file_put_contents($this->logPath, "[10:00:01 INFO]: straggler line written just before rotation\n", FILE_APPEND);
+
+    $oldInode = fileinode($this->logPath);
+
+    // Simulate rotation to a fresh inode at the same path (mirroring real
+    // log4j2 behavior, which moves the old file to an archive — a gzip
+    // archive with an unpredictable name in production — and starts a
+    // brand new logs/latest.log). The straggler line above was NEVER
+    // read by this class before the old inode was moved away.
+    rename($this->logPath, $this->logPath.'.1');
+    file_put_contents($this->logPath, "[10:05:00 INFO]: first line after rotation\n");
+
+    expect(fileinode($this->logPath))->not->toBe($oldInode);
+
+    $second = tailService()->tail();
+
+    $lines = ConsoleEntry::query()->orderBy('id')->pluck('line')->all();
+
+    // The straggler line is genuinely, permanently lost — this is the
+    // documented gap, not a duplicate-avoidance quirk.
+    expect($lines)->not->toContain('[10:00:01 INFO]: straggler line written just before rotation')
+        // Everything else behaves exactly as guaranteed: the pre-rotation
+        // content that WAS already tailed stays ingested exactly once,
+        // and the new file's own content is ingested in full.
+        ->and($lines)->toContain('[10:00:00 INFO]: already tailed before rotation')
+        ->and($lines)->toContain('[10:05:00 INFO]: first line after rotation')
+        ->and($second->linesProcessed)->toBe(1);
+});
+
 it('resets to offset 0 when the same inode is truncated in place, without skipping the new content', function () {
     file_put_contents($this->logPath, "[10:00:00 INFO]: a very long line that will no longer fit after truncation\n");
     $first = tailService()->tail();
