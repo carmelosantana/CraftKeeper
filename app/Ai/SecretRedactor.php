@@ -87,20 +87,6 @@ final class SecretRedactor
     }
 
     /**
-     * Every currently CONFIGURED secret value in the Secret store (Task
-     * 4) — e.g. the RCON password, the hosted AI API key itself. Reading
-     * these decrypts every row; the values never leave this class except
-     * as input to redact() (which only ever emits a mask + a count, never
-     * the value).
-     *
-     * @return list<string>
-     */
-    public function configuredSecretValues(): array
-    {
-        return array_values($this->configuredSecretLabels());
-    }
-
-    /**
      * @return array<string, string> value => Secret key
      */
     public function configuredSecretLabels(): array
@@ -191,7 +177,7 @@ final class SecretRedactor
      * This exists specifically so a future exporter can reach for ONE
      * method and get both halves of "known secret" by default, rather
      * than reimplementing redactKnownSecrets()'s single-file wiring (or,
-     * worse, only wiring up configuredSecretValues() and silently missing
+     * worse, only gathering configured secrets and silently missing
      * schema-flagged fields like rcon.password / proxies.velocity.secret —
      * the exact gap this fix closes in SupportBundleService).
      *
@@ -236,10 +222,7 @@ final class SecretRedactor
         // The label map is keyed by VALUE (value => label — see
         // configuredAndSchemaSecretLabels()'s own docblock), so the
         // actual secret values are the KEYS here, not array_values().
-        // Mirrors redactKnownSecrets()'s own array_keys($labels) call
-        // just above, not the sibling (and, as of this fix pass,
-        // confirmed unused/dead) configuredSecretValues() method, whose
-        // array_values() is the wrong half of this exact same map.
+        // Mirrors redactKnownSecrets()'s own array_keys($labels) call.
         return array_keys($this->configuredAndSchemaSecretLabels());
     }
 }
