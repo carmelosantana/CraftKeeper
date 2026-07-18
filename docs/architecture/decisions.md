@@ -1203,3 +1203,252 @@ field is classified `OperationRisk::Elevated` overall (mirroring
 `RestartImpact`'s own `None < Reload < Restart` ordering) — a reviewer
 must see the worst consequence of approving the whole batch, not a
 diluted average.
+
+## Task 9 — Configuration Inventory and Editor Experience
+
+**The brief's literal secret-redaction test target (`plugins/Geyser-Spigot/
+config.yml`) has zero schema-secret fields — retargeted to
+`server.properties`'s `rcon.password`, the repo's one real one.**
+`resources/schemas/config/geyser.json` and `floodgate.json` (Task 7)
+declare no `secret: true` field, correctly: Geyser/Floodgate's real secret
+is a Floodgate key **PEM file**, never a `config.yml` scalar value. The
+brief's own Step 1 test (`assertDontSee('actual-secret-value')` against
+that route) would pass vacuously against that fixture — nothing there
+needs redacting. `tests/Feature/Http/ConfigControllerTest.php`'s primary
+security test writes a real `rcon.password=actual-secret-value` into
+`server.properties` (the field Task 8's own `ConfigChangeServiceTest`
+already uses as its one schema-secret example) instead, and a second test
+proves the literal brief route (`/configurations/plugins/Geyser-Spigot/
+config.yml`) still works and renders real (non-secret) content correctly.
+
+**`tests/Browser/ConfigEditorTest.php` does not exist — `tests/e2e/
+configuration.spec.ts` does.** Same reconciliation Tasks 3/4 already made
+explicit: this stack's actual, working e2e convention (a Playwright
+TypeScript spec run via `npm run e2e`, `playwright.config.ts`'s `testDir:
+'./tests/e2e'`) was established in Task 3, and there is no Laravel Dusk
+dependency anywhere in this project for a PHP "Browser" test class to
+extend. Following the plan's literal path here would produce a file
+nothing runs.
+
+**The source-mode secret-redaction round trip — the brief's own
+escalation-flagged "subtle part" — resolved without a human round trip,
+because reusing Task 8's own redaction primitive turns it into a provably
+safe design, not a judgment call between real tradeoffs.** The rule every
+one of the three edit modes obeys is identical: *diff the operator's
+submitted edit against the exact REDACTED baseline the browser was shown
+— never against the real unredacted current content.* Concretely:
+
+- `ConfigController::redactedSource()` is a thin wrapper over
+  `App\Config\ConfigDiffBuilder::redactSecrets()` (Task 8) — the SAME
+  function, not a re-implementation — masking every schema-secret field's
+  value to `InputRedactor::MASK` in place, by byte offset, leaving every
+  other byte (including comments/ordering) untouched.
+- On `GET`, this redacted text is what `source.contents` sends the
+  browser. On `POST` (`reconcileSource()`), the server recomputes that
+  SAME redacted baseline from the file's current real content, then
+  parses both baseline and submitted text via the adapter and diffs their
+  located scalar leaves by dotted path (the identical "diff two parsed
+  documents' leaves" primitive `App\Config\ConfigRevisionService::
+  restore()` already uses for revision restore).
+- Because the baseline is redacted, a secret leaf the operator never
+  touched parses to the identical sentinel string on both sides →
+  `looseEquals()` → no `ConfigChange` is ever created for it → the real
+  value is never touched and the literal `••••••` text is never written
+  anywhere. A secret leaf the operator DID retype parses to a genuinely
+  different value → a real `ConfigChange::replace()` carries the real
+  typed value forward through the existing encrypted
+  `App\Models\ConfigChangePayload` channel (Task 8) — never through this
+  masked comparison.
+- Because redaction only ever touches secret spans (proven by Task 8's own
+  `ConfigDiffBuilder` tests), every NON-secret byte of the baseline is
+  identical to the real file — so this diff is exactly as accurate for
+  every ordinary field as diffing against the unredacted original would
+  have been. The ONLY behavioral cost is a single, disclosed, and
+  effectively unreachable edge case: an operator cannot set a secret
+  field's real value to the literal six-character string `••••••` (it
+  would be read as "unchanged") — the same limitation every masked-secret
+  UI in the industry already has (GitHub Actions secrets, `1Password`,
+  etc. all special-case their own masking sentinel the same way).
+- Guided and structured mode use the SAME rule at the field/leaf level
+  instead of the whole-file level: `buildGuided()`/`buildStructuredData()`
+  send the sentinel as `currentValue`/leaf value for secret fields;
+  `reconcileGuided()`/`reconcileStructured()` skip a field/leaf outright
+  when its submitted value is still exactly the sentinel, comparing
+  everything else against the SAME baseline the browser was shown
+  (`buildStructuredData()`'s redacted tree, reused verbatim as
+  `reconcileStructured()`'s diff baseline).
+
+This is why all three modes are provably identical on this property, not
+just believed to be: they are all, structurally, "diff the submission
+against the exact thing `buildX()` sent the browser" — there is only one
+redaction implementation (`ConfigDiffBuilder::redactSecrets()`) and one
+skip rule (`submitted === InputRedactor::MASK` for a schema-secret
+path/leaf), reused three times rather than reimplemented three times.
+
+**Real bug caught while tracing the ACTUAL frontend's guided-mode submit
+behavior (not just the PHP tests, which used a minimal hand-crafted
+payload): resubmitting the guided form's full displayed state would have
+silently added every untouched, absent-from-the-file schema field's
+DEFAULT value to the file on the very first save.** `Edit.tsx` seeds
+`guidedValues` from every schema field's `currentValue` (not just the one
+the operator touches) and submits all of it on save — matching how a real
+HTML form works. `buildGuided()`'s `currentValue` for a field absent from
+the file is the schema `default` (so the operator sees a pre-filled,
+honest placeholder rather than a blank control with no context). The
+first version of `reconcileGuided()` compared the submitted value only
+against `currentParsed->node($path)?->value` — `null` for an absent
+field — so an untouched default-filled control (e.g. `difficulty`,
+`gamemode`, 21 of `server-properties.json`'s 26 fields, absent from the
+trimmed test fixture) would compare its default against `null`, see a
+"difference," and silently `ConfigChange::replace()` it in — bloating
+server.properties with every schema default the instant an operator
+changed even one unrelated field. Caught by writing
+`ConfigControllerTest.php`'s `'never adds every untouched schema field's
+default...'` test, which reconstructs the REAL Edit.tsx submission shape
+(reads `guided.groups[].fields[].currentValue` from the actual Inertia
+response and resubmits all of it, mutating only `allow-flight`) rather
+than a hand-picked two-key payload — the earlier, narrower tests in this
+file did not exercise this path at all and were passing throughout. Fixed
+by comparing against the SAME baseline `buildGuided()` used
+(`$node !== null ? $node->value : $field->default`), not the raw current
+node value alone.
+
+**Second real bug, found immediately after fixing the first, via the same
+test: Laravel's global `ConvertEmptyStringsToNull` middleware turns every
+submitted `''` into `null` before `reconcileGuided()` ever sees it,
+breaking the just-added default comparison for every string field whose
+default is `""`** (`level-seed`, `resource-pack`,
+`resource-pack-sha1`) — `GuidedEditor.tsx`'s text `<Input>` already
+renders a `null` or `''` current value identically as an empty box, so the
+operator cannot tell (or control) which one a truly-untouched field
+round-trips as; the middleware always makes it `null`. Fixed by
+normalizing `null → ''` on BOTH sides of the comparison, but only for
+`ConfigFieldType::String` fields (booleans/integers/numbers never hit
+this ambiguity — none of their schema defaults are empty-string-shaped)
+— see `reconcileGuided()`'s inline comment. For
+`App\Config\Formats\PropertiesAdapter` (the format of every currently
+schema-secret and currently-affected field), `null` and `''` render
+byte-identically as an empty value, so this normalization is lossless
+there; it is a defensible, disclosed simplification for nested formats
+(YAML/JSON/TOML) if a future schema ever puts an empty-string-default
+secret field on one of those.
+
+**Guided mode's "advanced settings" collapse was initially backwards —
+found by the e2e spec, not a PHP test.** An early version derived
+`advanced` from `risk === 'low' && restartImpact === 'none'`. Task 7's
+schema carries no actual "commonly edited vs. rarely touched" signal, and
+that heuristic picked exactly the wrong field to hide first:
+`motd` — server.properties' single most commonly edited field — is
+`risk: low`/`restartImpact: none`, so it collapsed under "Show N advanced
+settings" alongside genuinely obscure fields, while several fields an
+operator would rarely touch stayed "essential" purely by the same
+accident (most of `server-properties.json`'s 26 fields are `risk: low`).
+`tests/e2e/configuration.spec.ts`'s keyboard-only save test caught this
+immediately (`getByTestId('guided-field-motd').fill(...)` timed out —
+the field existed but was hidden inside a closed native `<details>`).
+Fixed by always sending `advanced: false` — every field shows flat —
+rather than inventing a second, equally-arbitrary heuristic;
+`GuidedEditor.tsx` still supports per-field `advanced` collapsing
+structurally, for whenever the schema gains a real curated signal.
+
+**Three WCAG contrast/link-affordance regressions, all caught by the
+e2e's real axe scan (Task 3's own component-level axe pass could not have
+caught these — they are about how Task 9 COMPOSED Task 3's primitives, not
+the primitives themselves) — same class of bug Task 3 already discovered
+once (see this file's Task 3 entry on `--ck-text-3`):**
+
+1. Breadcrumb `<Link>`s styled with `color: var(--ck-accent)` and no
+   underline, inline next to plain text, tripped axe's
+   `link-in-text-block` rule (insufficient contrast AND no non-color
+   distinguishing style). Fixed by adding `underline` to every inline
+   breadcrumb link in `Edit.tsx`/`History.tsx`.
+2. `--ck-accent`-colored text on a `--ck-elevated` background (`DiffReview`'s
+   risk label and "docs ↗" link) measured 3.91–4.42:1 against the
+   required 4.5:1 — the SAME "chip tint is only contrast-verified against
+   `--ck-surface`" issue `AppShell.tsx`'s `ServerIdentityCard` already
+   worked around for Task 3. Fixed the same way: the risk indicator uses
+   bare `StatusGlyph` (shape) + `--ck-text` label instead of the tinted
+   `StatusBadge` chip; the doc link uses `--ck-text` (keeping `underline`
+   for link affordance) instead of `--ck-accent`. `GuidedEditor.tsx`'s
+   "Edited" chip (accent-tinted background, `--ck-accent-hover` text at
+   10px bold) had the same problem and got the same fix.
+3. Several places in `ConfigPreview.tsx`/`GuidedEditor.tsx`/`Conflict.tsx`
+   used `--ck-text-3` for real readable secondary text (recognized/generic
+   labels, "Default:"/"Range" hints, the conflict view's truncated hash
+   line) — exactly the token this task's own brief warns is not AA-safe
+   as body text. All switched to `--ck-text-2`. The one remaining
+   `--ck-text-3` use (`SourceEditor.tsx`'s line-number gutter) is
+   `aria-hidden="true"` decorative content, matching the carve-out Task 3
+   already established for `--ck-text-3`.
+
+**Metadata-row filtering (ambiguity resolution #5) uses
+`redacted_input['changed_fields']` as the allow-list, not a denylist of
+known generic keys.** `ConfigController::presentOperation()` queries
+`$operation->changeProposals()->whereIn('field', $realPaths)` where
+`$realPaths` is exactly `redacted_input['changed_fields']` — the list
+`App\Config\ConfigChangeService::build()` already computes as the real
+field paths touched. This is provably correct without having to enumerate
+(and keep in sync with) `OperationService::recordChangeProposals()`'s
+generic key names (`diff`, `base_sha256`, `changed_fields.0`,
+`diagnostics.0`, ...): a real config field path can never coincide with
+one of those generic metadata keys.
+
+**A fourth, narrow `mode: 'fields'` request shape exists ONLY for the
+Conflict page's "create a fresh proposal from manually selected values"
+action (ambiguity resolution #3) — it is not a fourth general editing
+mode and does not weaken "all three modes converge on one
+ConfigChangeRequest."** Guided/structured/source all DIFF an edit against
+a baseline; the conflict picker has no single baseline left to diff
+against once base/disk/proposed have already diverged (that is the whole
+point of a conflict), and already knows the exact final value for each
+field the operator picks. `reconcileFields()` applies each selection as a
+direct `ConfigChange::replace()`, with the identical secret-sentinel skip
+rule as every other path.
+
+**A real, working writable Minecraft root did not exist for local/e2e
+runs before this task — `playwright.config.ts`'s `webServer.command` now
+refreshes a disposable copy of `tests/fixtures/minecraft` into
+`storage/craftkeeper/e2e-minecraft/` on every fresh server boot** (same
+pattern as its existing `migrate:fresh`), with `MINECRAFT_ROOT` set via
+`webServer.env`. The git-tracked fixture itself is never used directly —
+several existing filesystem tests (`tests/Unit/Filesystem/
+MinecraftPathTest.php`) read it and must never observe it mutated by an
+e2e write. `tests/e2e/configuration.spec.ts` injects one real secret value
+into its own copy in `test.beforeAll()` (idempotent — checks for
+`rcon.password=` first) so the redaction assertions exercise the real
+mechanism, not a vacuous fixture.
+
+**Inventory is a card grid at every breakpoint, not a table that collapses
+to cards below 768px — a design simplification, not a missed
+requirement.** The plan's "Tables become stacked cards below 768px"
+describes the OUTCOME (stacked cards on mobile); a single-column
+(desktop: multi-column) card grid already IS that outcome at every width,
+so there is no separate table layout to conditionally collapse out of, and
+no risk of the table/card views drifting out of sync.
+
+**Restore copy intentionally never promises exact restoration.**
+`History.tsx`'s body copy reads "propose the recorded field values...
+does not guarantee an exact, byte-for-byte copy of the original file" —
+matching `App\Config\ConfigRevisionService::restore()`'s own documented,
+tested scalar-leaf-only scope (Task 8), not the plan's looser "restore
+the changes needed to return it toward the revision" phrasing
+misread as a stronger guarantee.
+
+**Every user-visible config operation has idle/pending/success/failure
+states; "degraded" and "retry" map onto this domain's actual failure
+shapes rather than a literal persistent-connection degraded banner.**
+Config editing is synchronous request/response (propose/approve/reject
+all `router.post()` with `onStart`/`onFinish` driving a `pending` flag
+and disabled buttons + "Reviewing…"/"Applying…" copy), so there is no
+long-lived connection to show "degraded" the way RCON/AI connectivity
+would. The closest analog — one file the discovery/read step could not
+read — degrades that ONE inventory card in place (`ConfigPreview`'s
+`item.readable === false` branch) without failing the whole page, which
+is the same "partial-data, not whole-page failure" principle
+`PageState`'s `partial-data` variant encodes. "Retry" after a failed
+propose (a source-mode parse error) or a failed approve/execute is: the
+editor is still on screen with the operator's input intact (parse error)
+or freshly reloaded and immediately re-editable (approve/execute
+failure) plus a toast explaining what happened — not a dedicated "Retry"
+button. Noted as a disclosed, minor UX gap in the Task 9 report rather
+than a silently-skipped requirement.

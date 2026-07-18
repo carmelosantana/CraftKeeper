@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 // `127.0.0.1:8123` — not `localhost`, and deliberately not one of the
@@ -14,6 +15,20 @@ const PORT = process.env.APP_URL
 const HOST = process.env.APP_URL
     ? new URL(process.env.APP_URL).hostname
     : '127.0.0.1';
+
+// Task 9: the configuration e2e spec needs a REAL, WRITABLE Minecraft root
+// with recognizable config files — `config/craftkeeper.php`'s local/test
+// fallback (`storage_path('craftkeeper/minecraft')`) does not exist by
+// default and must never be the git-tracked `tests/fixtures/minecraft`
+// (Feature tests read that fixture directly and it must stay pristine —
+// see tests/Unit/Filesystem/MinecraftPathTest.php). `webServer.command`
+// below refreshes a disposable copy of it here on every fresh server boot,
+// the same way it already refreshes the sqlite database via
+// `migrate:fresh`.
+const E2E_MINECRAFT_ROOT = path.resolve(
+    process.cwd(),
+    'storage/craftkeeper/e2e-minecraft',
+);
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -50,11 +65,16 @@ export default defineConfig({
     // means this only runs when no server is already listening on the
     // port; a manually-left-running `artisan serve` is reused as-is.
     webServer: {
-        command: `php artisan migrate:fresh --force && npm run build && php artisan serve --host=${HOST} --port=${PORT}`,
+        command:
+            `rm -rf ${E2E_MINECRAFT_ROOT} && mkdir -p ${E2E_MINECRAFT_ROOT} && cp -r tests/fixtures/minecraft/. ${E2E_MINECRAFT_ROOT}/ && ` +
+            `php artisan migrate:fresh --force && npm run build && php artisan serve --host=${HOST} --port=${PORT}`,
         url: `http://${HOST}:${PORT}/up`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
         stdout: 'pipe',
         stderr: 'pipe',
+        env: {
+            MINECRAFT_ROOT: E2E_MINECRAFT_ROOT,
+        },
     },
 });

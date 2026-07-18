@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Middleware\RequireInstallation;
@@ -60,6 +61,25 @@ Route::middleware(['auth'])->prefix('onboarding')->name('onboarding.')->group(fu
 
 Route::middleware(['auth'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    // Task 9: configuration inventory + editor. Literal-prefixed routes
+    // (operations/*, revisions/*, history/*) are registered BEFORE the two
+    // `{path}` wildcards (which accept slashes, via `where('path', '.*')`,
+    // so a real Minecraft-relative path like "plugins/Geyser-Spigot/
+    // config.yml" resolves as one route parameter) so none of them can
+    // ever be swallowed by the wildcard — a real config file would need to
+    // be literally named e.g. "operations/<uuid>/approve" to collide, which
+    // ConfigDiscoveryService could never produce from a real Minecraft
+    // install.
+    Route::prefix('configurations')->name('configurations.')->group(function () {
+        Route::get('/', [ConfigController::class, 'index'])->name('index');
+        Route::post('operations/{operation}/approve', [ConfigController::class, 'approve'])->name('approve');
+        Route::post('operations/{operation}/reject', [ConfigController::class, 'reject'])->name('reject');
+        Route::post('revisions/{revision}/restore', [ConfigController::class, 'restore'])->name('restore');
+        Route::get('history/{path}', [ConfigController::class, 'history'])->where('path', '.*')->name('history');
+        Route::post('{path}', [ConfigController::class, 'propose'])->where('path', '.*')->name('propose');
+        Route::get('{path}', [ConfigController::class, 'edit'])->where('path', '.*')->name('edit');
+    });
 });
 
 require __DIR__.'/settings.php';

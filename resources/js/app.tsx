@@ -14,6 +14,12 @@ createInertiaApp({
         switch (true) {
             case name === 'welcome':
             case name === 'DesignSystem':
+            case name.startsWith('config/'):
+                // config/* pages wrap themselves in the CraftKeeper AppShell
+                // (Task 3) directly, the same way DesignSystem does — the
+                // starter kit's own AppLayout below is a different,
+                // pre-CraftKeeper sidebar shell that config pages must not
+                // be double-wrapped in.
                 return null;
             case name.startsWith('auth/'):
             case name.startsWith('onboarding/'):
