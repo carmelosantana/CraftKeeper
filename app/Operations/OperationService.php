@@ -2,6 +2,7 @@
 
 namespace App\Operations;
 
+use App\Ai\SecretRedactor;
 use App\Events\OperationUpdated;
 use App\Models\AuditEvent;
 use App\Models\ChangeProposal;
@@ -43,6 +44,20 @@ use Throwable;
  * task builds the first real handler decides whether to call execute()
  * synchronously right after approval or dispatch it as a queued job, and
  * doesn't need to unpick an assumption baked in here.
+ *
+ * Whole-branch fix pass: `outcome` is free text — reject()'s
+ * operator-typed `$reason`, and execute()/rollback()'s handler result
+ * message (which, on a caught handler exception, is that exception's own
+ * ->getMessage(), i.e. attacker- or environment-influenced text neither
+ * this class nor the handler fully controls) — and it is exactly what
+ * EVERY serializer of an Operation returns (OperationUpdated::
+ * broadcastWith(), OperationResource, Mcp\Resources\ActivityResource,
+ * PresentsOperations, the support bundle). redactOutcome() is the single
+ * choke point all three producers pass through before the value is ever
+ * persisted, so a known secret value (an rcon.password, an API token, a
+ * schema `secret: true` config field) echoed into an outcome/reason
+ * string is masked at the source rather than relying on every downstream
+ * serializer to redact it independently.
  */
 class OperationService
 {
@@ -131,7 +146,7 @@ class OperationService
                 'rejected_by_type' => $author->type,
                 'rejected_by_id' => $author->id,
                 'rejected_at' => now(),
-                'outcome' => $reason,
+                'outcome' => $this->redactOutcome($reason),
             ])->save();
 
             // A rejected operation will never execute, so any config
@@ -222,7 +237,7 @@ class OperationService
             $operation = $this->transition($operation, $terminal);
             $operation->forceFill([
                 'finished_at' => now(),
-                'outcome' => $result->message,
+                'outcome' => $this->redactOutcome($result->message),
                 'error_code' => $result->errorCode,
             ])->save();
 
@@ -257,7 +272,7 @@ class OperationService
 
             $operation->forceFill([
                 'finished_at' => now(),
-                'outcome' => $result->message,
+                'outcome' => $this->redactOutcome($result->message),
                 'error_code' => $result->successful ? null : $result->errorCode,
             ])->save();
 
@@ -293,6 +308,44 @@ class OperationService
             return $callback($handler);
         } catch (Throwable $e) {
             return OperationResult::failure('operation.handler_exception', $e->getMessage());
+        }
+    }
+
+    /**
+     * The single choke point every producer of Operation::outcome passes
+     * through before persistence: reject()'s free-typed operator $reason,
+     * and execute()/rollback()'s handler result message (including a
+     * caught handler exception's ->getMessage() — see runHandler() above).
+     * `outcome` is emitted by every serializer of an Operation
+     * (OperationUpdated::broadcastWith(), OperationResource,
+     * Mcp\Resources\ActivityResource, PresentsOperations, the support
+     * bundle) and, unlike redacted_input/the audit payload, had no
+     * redactor at all — this closes that gap using the same
+     * App\Ai\SecretRedactor::configuredAndSchemaSecretValues() value
+     * source App\Support\SupportBundleService already relies on, so a
+     * configured Secret value or a schema `secret: true` config field
+     * value echoed into a reason/outcome string is masked here, once, for
+     * every consumer.
+     *
+     * Deliberately best-effort: resolving/walking the redactor can fail
+     * (e.g. the mounted Minecraft root being briefly unreadable while
+     * discovering schema-flagged secrets), and an operation's lifecycle
+     * transition must never fail because redaction failed — on any
+     * Throwable this returns $outcome completely unredacted rather than
+     * throwing.
+     */
+    private function redactOutcome(?string $outcome): ?string
+    {
+        if ($outcome === null || $outcome === '') {
+            return $outcome;
+        }
+
+        try {
+            $redactor = resolve(SecretRedactor::class);
+
+            return $redactor->redact($outcome, $redactor->configuredAndSchemaSecretValues())->text;
+        } catch (Throwable) {
+            return $outcome;
         }
     }
 

@@ -5,6 +5,7 @@ use App\Config\ConfigChangeRequest;
 use App\Config\ConfigChangeService;
 use App\Models\Operation;
 use App\Models\User;
+use App\Operations\OperationActorType;
 use App\Operations\OperationAuthor;
 use App\Operations\OperationService;
 use App\Operations\OperationStatus;
@@ -178,6 +179,48 @@ it('returns 409 when an Idempotency-Key is reused with a different body', functi
         ])
         ->assertStatus(409)
         ->assertJsonPath('code', 'idempotency_key_conflict');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Actor origin: a token-authored operation is never mistaken for a browser
+| click (Fix 2 — previously OperationAuthor::user() was called here with
+| no second argument, defaulting to 'web' and making an API-created
+| operation byte-identical, in author_type/author_origin, to a UI click).
+|--------------------------------------------------------------------------
+*/
+
+it('records author_origin as api for a proposal created through the REST API', function () {
+    $contents = "motd=hi\n";
+    file_put_contents($this->minecraftRoot.'/server.properties', $contents);
+    $token = User::factory()->create()->createToken('proposer', ['config:propose'])->plainTextToken;
+
+    $response = $this->withToken($token)
+        ->postJson('/api/v1/config/proposals', [
+            'path' => 'server.properties',
+            'base_sha256' => hash('sha256', $contents),
+            'changes' => [['path' => 'motd', 'kind' => 'replace', 'value' => 'Hello world']],
+        ])
+        ->assertCreated();
+
+    $response->assertJsonPath('data.actor.origin', 'api');
+
+    $operation = Operation::query()->findOrFail($response->json('data.id'));
+
+    expect($operation->author_origin)->toBe('api')
+        ->and($operation->author_type)->toBe(OperationActorType::Human);
+});
+
+it('still records author_origin as web for an operation proposed directly through the domain service (the web UI path)', function () {
+    $contents = "motd=hi\n";
+    file_put_contents($this->minecraftRoot.'/server.properties', $contents);
+
+    $changeRequest = new ConfigChangeRequest('server.properties', hash('sha256', $contents), [
+        ConfigChange::replace('motd', 'Hello world'),
+    ]);
+    $operation = app(ConfigChangeService::class)->propose($changeRequest, OperationAuthor::user($this->admin->id));
+
+    expect($operation->author_origin)->toBe('web');
 });
 
 /*

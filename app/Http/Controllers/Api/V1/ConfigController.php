@@ -191,7 +191,7 @@ class ConfigController extends Controller
         }, $data['changes']));
 
         $changeRequest = new ConfigChangeRequest($data['path'], $data['base_sha256'], $changes);
-        $author = OperationAuthor::user($this->apiUser($request)->getKey());
+        $author = OperationAuthor::user($this->apiUser($request)->getKey(), 'api');
 
         $operation = $this->idempotency->resolve(
             $this->apiToken($request),

@@ -1,9 +1,11 @@
 /**
  * Shared shapes for Task 12's Activity feed — mirrors App\Http\
  * Controllers\ActivityController exactly. `sources` is deliberately a
- * fixed, complete vocabulary (Task 12's ambiguity resolution #5) even
- * though several of them ("ai-proposal", "api-call", "mcp-call") never
- * produce an item yet — see that controller's own docblock.
+ * fixed, complete vocabulary (Task 12's ambiguity resolution #5).
+ * "ai-proposal", "api-call", and "mcp-call" originally produced no items
+ * (Task 12 shipped before the AI/API/MCP actors existed) but now filter on
+ * the operation's real `actor.origin` (App\Operations\OperationAuthor) —
+ * see that controller's own docblock for how each of the three is wired.
  */
 
 export interface ActivityActorDTO {

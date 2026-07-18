@@ -13,25 +13,31 @@ use Inertia\Response;
 /**
  * GET /activity — a chronological, filterable union of everything
  * CraftKeeper has actually recorded so far (Task 12's ambiguity
- * resolution #5). Two REAL, populated sources exist as of this task:
+ * resolution #5). Two REAL, populated sources exist as of Task 12:
  * App\Models\Operation (covers config changes, plugin changes, commands,
  * and server restarts — all just different App\Operations\OperationType
  * values) and App\Models\PlayerEvent (join/leave/kick/chat). Three more
- * categories the brief names — AI proposals, API calls, MCP calls — have
- * no backing table yet (Tasks 16/19+); they still appear as selectable
- * filter values (so the filter UI's vocabulary is complete and stable)
- * but never produce an item, which is the honest state rather than
- * fabricating placeholder rows.
+ * categories the brief names — AI proposals, API calls, MCP calls —
+ * appeared as selectable filter values from Task 12 onward but produced
+ * no items until Tasks 16/17/18 shipped the AI, API, and MCP actors
+ * (App\Operations\OperationAuthor::ai()/OperationAuthor::user($id, 'api')/
+ * OperationAuthor::mcp()) and the whole-branch fix pass wired these three
+ * filters to real predicates on Operation::author_origin (see
+ * ORIGIN_SOURCE_MAP below). Every operation now has a real, meaningful
+ * author_origin, so these three filters return real operations rather
+ * than a silently empty feed.
  *
  * "Never render a secret": every summary string here is built ONLY from
  * fields already proven safe elsewhere — Operation::target (already
  * display-redacted for rcon.command by App\Console\RconCommandService,
  * Task 10) and Operation::outcome (a handler-authored, templated message —
  * see App\Operations\Handlers\RconCommandHandler's own docblock on why its
- * message is never the server's raw response body). PlayerEvent::message
- * (chat text / a kick reason) was never secret-shaped to begin with — Task
- * 11 already surfaces it unredacted, and this controller does not change
- * that.
+ * message is never the server's raw response body, and the whole-branch
+ * fix pass's own choke point in App\Operations\OperationService, which
+ * redacts any known secret VALUE out of outcome before it is ever
+ * persisted). PlayerEvent::message (chat text / a kick reason) was never
+ * secret-shaped to begin with — Task 11 already surfaces it unredacted,
+ * and this controller does not change that.
  */
 class ActivityController extends Controller
 {
@@ -46,6 +52,27 @@ class ActivityController extends Controller
         ],
         'command' => [OperationType::RconCommand],
         'server-restart' => [OperationType::ServerStop],
+    ];
+
+    /**
+     * The three actor-provenance filters — orthogonal to
+     * OPERATION_SOURCE_MAP's type-based buckets above: any operation type
+     * (config/plugin/command/server-restart) can, in principle, have been
+     * authored by a non-human actor. Keyed by the exact
+     * Operation::author_origin value App\Operations\OperationAuthor's
+     * factory methods actually persist by default —
+     * OperationAuthor::ai() -> 'ai', OperationAuthor::mcp() -> 'mcp', and
+     * (since the whole-branch fix pass) every /api/v1 controller's
+     * OperationAuthor::user($id, 'api') -> 'api'. A human acting through
+     * the web UI (origin 'web') or CraftKeeper itself (origin 'system')
+     * never matches any of these three.
+     *
+     * @var array<string, string> source => author_origin
+     */
+    private const ORIGIN_SOURCE_MAP = [
+        'ai-proposal' => 'ai',
+        'api-call' => 'api',
+        'mcp-call' => 'mcp',
     ];
 
     /** @var list<string> */
@@ -110,6 +137,20 @@ class ActivityController extends Controller
      */
     private function operationItems(?string $source): array
     {
+        // The three actor-provenance filters are a predicate on
+        // author_origin, not on type — an ai-/api-/mcp-authored operation
+        // can be any OperationType, so this branch queries across ALL
+        // types rather than through OPERATION_SOURCE_MAP.
+        if ($source !== null && array_key_exists($source, self::ORIGIN_SOURCE_MAP)) {
+            return array_values(Operation::query()
+                ->where('author_origin', self::ORIGIN_SOURCE_MAP[$source])
+                ->latest()
+                ->limit(self::LIMIT)
+                ->get()
+                ->map(fn (Operation $operation) => $this->operationRow($operation))
+                ->all());
+        }
+
         $types = $source !== null
             ? (self::OPERATION_SOURCE_MAP[$source] ?? [])
             : array_merge(...array_values(self::OPERATION_SOURCE_MAP));
@@ -123,20 +164,28 @@ class ActivityController extends Controller
             ->latest()
             ->limit(self::LIMIT)
             ->get()
-            ->map(fn (Operation $operation) => [
-                'id' => 'operation:'.$operation->id,
-                'source' => $this->sourceForType($operation->type),
-                'actor' => [
-                    'type' => $operation->author_type->value,
-                    'id' => $operation->author_id,
-                    'origin' => $operation->author_origin,
-                ],
-                'timestamp' => $operation->created_at?->toIso8601String(),
-                'status' => $operation->status->value,
-                'summary' => $this->summarizeOperation($operation),
-                'correlationId' => $operation->correlation_id,
-            ])
+            ->map(fn (Operation $operation) => $this->operationRow($operation))
             ->all());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function operationRow(Operation $operation): array
+    {
+        return [
+            'id' => 'operation:'.$operation->id,
+            'source' => $this->resolveSource($operation),
+            'actor' => [
+                'type' => $operation->author_type->value,
+                'id' => $operation->author_id,
+                'origin' => $operation->author_origin,
+            ],
+            'timestamp' => $operation->created_at?->toIso8601String(),
+            'status' => $operation->status->value,
+            'summary' => $this->summarizeOperation($operation),
+            'correlationId' => $operation->correlation_id,
+        ];
     }
 
     /**
@@ -182,6 +231,23 @@ class ActivityController extends Controller
         }
 
         return 'command';
+    }
+
+    /**
+     * The "source" badge an operation row displays. Actor provenance wins
+     * over the type-based bucket: an ai-/api-/mcp-authored operation
+     * displays as its origin ('ai-proposal'/'api-call'/'mcp-call')
+     * regardless of whether it's a config/plugin/command/server-restart
+     * type underneath, since that provenance is the more specific and
+     * more interesting fact about the row. A web- or system-authored
+     * operation (the vast majority) falls through to the existing
+     * type-based bucket exactly as before this fix.
+     */
+    private function resolveSource(Operation $operation): string
+    {
+        $origin = array_flip(self::ORIGIN_SOURCE_MAP)[$operation->author_origin] ?? null;
+
+        return $origin ?? $this->sourceForType($operation->type);
     }
 
     private function summarizeOperation(Operation $operation): string

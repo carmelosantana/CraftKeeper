@@ -53,8 +53,8 @@ Laravel 13 + Inertia 3 / React 19 application with SQLite persistence.
   entirely optional and degrading cleanly when unavailable. Hosted AI
   requests have every known secret redacted before transmission, with
   the redaction disclosed to the operator. The AI may only propose
-  configuration changes, plugin operations, and safe RCON commands — a
-  human approves every mutation.
+  configuration changes and safe RCON commands (plugin operations are an
+  MCP-only proposal type, see below) — a human approves every mutation.
 - **Versioned REST API (`/api/v1`).** Scoped personal-access tokens,
   idempotency-key support, cursor pagination, and a published
   `openapi.yaml` contract that is tested against the live route table.
@@ -129,3 +129,9 @@ for the full detail behind each:
 - Hangar and Modrinth response-shape handling is verified against
   recorded fixtures, not against a live call to either service made as
   part of this repository's own test/CI runs.
+- `/api/v1`'s cursor pagination is bounded: `OperationController::index()`
+  and `ConfigController::listProposals()` materialize at most the most
+  recent 1000 rows before paginating in memory. Past that ceiling,
+  `has_more: false` is indistinguishable from genuine end-of-data — a
+  silent cap this project's own principles would otherwise flag, so it is
+  disclosed here explicitly rather than left implicit.

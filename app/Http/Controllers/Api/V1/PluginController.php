@@ -63,7 +63,7 @@ class PluginController extends Controller
     public function disable(Request $request, string $filename): JsonResponse
     {
         $installation = $this->installationOrAbort($filename);
-        $author = OperationAuthor::user($this->apiUser($request)->getKey());
+        $author = OperationAuthor::user($this->apiUser($request)->getKey(), 'api');
 
         $operation = $this->idempotency->resolve(
             $this->apiToken($request),
@@ -79,7 +79,7 @@ class PluginController extends Controller
     public function remove(Request $request, string $filename): JsonResponse
     {
         $installation = $this->installationOrAbort($filename);
-        $author = OperationAuthor::user($this->apiUser($request)->getKey());
+        $author = OperationAuthor::user($this->apiUser($request)->getKey(), 'api');
 
         $operation = $this->idempotency->resolve(
             $this->apiToken($request),

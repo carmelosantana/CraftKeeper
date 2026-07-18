@@ -16,13 +16,18 @@ name: Publish Image
 #                                       SBOM generation and attestation)
 #
 # A fourth job, publish-moving-tags, has `needs: [build-and-push,
-# smoke-test, scan]` — only once BOTH the boot check and the vulnerability
-# gate pass does it point `:vX`, `:vX.Y`, and (final releases only)
-# `:latest` at the already-pushed, already-verified digest via `docker
-# buildx imagetools create` (no rebuild — same bytes, new pointers). A
-# prerelease tag publishes ONLY its exact `:vX.Y.Z-rc.N`; `:latest`,
-# `:vX`, and `:vX.Y` are all withheld for it, so a pinned `:v1`/`:v1.2`
-# operator is never silently moved onto a release candidate.
+# smoke-test, scan, sign-and-attest]` — only once the boot check, the
+# vulnerability gate, AND signing+attestation all pass does it point
+# `:vX`, `:vX.Y`, and (final releases only) `:latest` at the
+# already-pushed, already-verified digest via `docker buildx imagetools
+# create` (no rebuild — same bytes, new pointers). Gating on
+# sign-and-attest too means a Fulcio/Rekor outage or a syft/cosign
+# failure withholds the moving tags rather than leaving `:latest`
+# pointed at an image nothing ever signed, even though README.md tells
+# operators to `cosign verify` that exact tag. A prerelease tag
+# publishes ONLY its exact `:vX.Y.Z-rc.N`; `:latest`, `:vX`, and
+# `:vX.Y` are all withheld for it, so a pinned `:v1`/`:v1.2` operator is
+# never silently moved onto a release candidate.
 #
 # Supply-chain posture:
 #   - Every third-party action pinned to a full commit SHA (see ci.yml's
@@ -35,10 +40,10 @@ name: Publish Image
 #     pull_request at all.
 #   - `latest` is never published for a prerelease tag, and no moving tag
 #     (`:latest`, `:vX`, `:vX.Y`) is published for ANY tag until
-#     smoke-test + scan both succeed (see "Compute image tags" and
-#     "publish-moving-tags" below) — implemented as explicit, auditable
-#     checks and job dependencies, not left to an action's implicit
-#     behavior or to publish-then-verify ordering.
+#     smoke-test + scan + sign-and-attest all succeed (see "Compute image
+#     tags" and "publish-moving-tags" below) — implemented as explicit,
+#     auditable checks and job dependencies, not left to an action's
+#     implicit behavior or to publish-then-verify ordering.
 
 on:
   push:
@@ -272,9 +277,15 @@ jobs:
     # happened as part of the same push as the build, BEFORE smoke-test
     # and scan ran at all — a CRITICAL CVE (or a boot failure) would
     # still leave `:latest` pointed at the bad image, with a green
-    # pipeline overall (Trivy had no exit-code). Now, `:latest`/`:vX`/
-    # `:vX.Y` are only ever pointed at the digest AFTER both gates pass.
-    needs: [build-and-push, smoke-test, scan]
+    # pipeline overall (Trivy had no exit-code). It also previously ran
+    # in parallel with sign-and-attest rather than waiting on it, so a
+    # Fulcio/Rekor outage or a syft failure could leave `:latest`/`:vX`/
+    # `:vX.Y` live and pointed at an unsigned, unattested image while
+    # README.md still tells operators to `cosign verify` that exact tag.
+    # Now, `:latest`/`:vX`/`:vX.Y` are only ever pointed at the digest
+    # AFTER all three gates — smoke-test, scan, AND sign-and-attest —
+    # pass.
+    needs: [build-and-push, smoke-test, scan, sign-and-attest]
     if: needs.build-and-push.outputs.moving_tags != ''
     runs-on: ubuntu-latest
     permissions:
@@ -295,9 +306,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Re-tags the manifest already pushed by build-and-push and already
-      # verified by smoke-test + scan — no rebuild, no new bytes pushed,
-      # just additional pointers at the exact digest those two jobs
-      # checked.
+      # verified by smoke-test + scan, and already signed and attested by
+      # sign-and-attest — no rebuild, no new bytes pushed, just additional
+      # pointers at the exact digest those jobs checked/signed.
       - name: Point each moving tag at the verified digest
         run: |
           set -euo pipefail

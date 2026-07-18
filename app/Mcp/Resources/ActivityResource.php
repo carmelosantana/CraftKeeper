@@ -13,16 +13,22 @@ use Laravel\Mcp\Server\Resource;
 
 /**
  * A BOUNDED, REDACTED feed of the most recent CraftKeeper operations
- * (config/plugin/rcon/server) — status, risk, actor, and timestamps only.
- * `target` is already display-redacted for a secret-shaped rcon.command
- * operation by App\Console\RconCommandService::proposeCommand() before it
- * is ever persisted, exactly like the web Activity page and the REST
- * API's OperationResource — this resource never queries
- * App\Models\ConfigChangePayload or App\Models\RconCommandPayload (the two
- * tables that ever hold a raw secret value). Requires the `activity:read`
- * scope.
+ * (config/plugin/rcon/server) — status, risk, actor, timestamps, and
+ * outcome. `target` is already display-redacted for a secret-shaped
+ * rcon.command operation by App\Console\RconCommandService::
+ * proposeCommand() before it is ever persisted, exactly like the web
+ * Activity page and the REST API's OperationResource. `outcome` (free
+ * operator/handler text — see App\Operations\OperationService's own
+ * docblock) is, since the whole-branch fix pass, passed through
+ * App\Ai\SecretRedactor at that same choke point before it is ever
+ * persisted, so any known Secret/schema-flagged value it might otherwise
+ * have echoed is already masked by the time it reaches this resource —
+ * this resource applies no redaction of its own to it, and needs none.
+ * This resource never queries App\Models\ConfigChangePayload or
+ * App\Models\RconCommandPayload (the two tables that ever hold a raw
+ * secret value). Requires the `activity:read` scope.
  */
-#[Description('Bounded, redacted feed of the most recent CraftKeeper operations — status, risk, actor, and timestamps only. Never a raw secret value.')]
+#[Description('Bounded, redacted feed of the most recent CraftKeeper operations — status, risk, actor, timestamps, and outcome. Never a raw secret value.')]
 class ActivityResource extends Resource
 {
     private const MAX_ITEMS = 20;

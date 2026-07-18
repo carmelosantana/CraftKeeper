@@ -60,7 +60,16 @@ Route::inertia('design-system', 'DesignSystem')->name('design-system');
 // redirected to /dashboard by 'guest' before RequireInstallation ever runs.
 Route::middleware([RequireInstallation::class.':not-installed'])->group(function () {
     Route::get('onboarding', [OnboardingController::class, 'welcome'])->name('onboarding.welcome');
-    Route::post('onboarding/admin', [OnboardingController::class, 'storeAdmin'])->name('onboarding.admin');
+    // Whole-branch fix pass: this is an UNAUTHENTICATED endpoint that
+    // creates CraftKeeper's one admin account — previously the only
+    // unlimited route in the app reachable before any session exists.
+    // Reuses the existing 'tokens' limiter (App\Providers\
+    // AppServiceProvider::configureApiRateLimiting(), 10/min, falls back
+    // to per-IP when there is no authenticated user) rather than adding a
+    // near-identical new one, since this is the same "credential/account
+    // issuance is a brute-force/abuse target" shape as the two routes
+    // that limiter already covers.
+    Route::post('onboarding/admin', [OnboardingController::class, 'storeAdmin'])->middleware('throttle:tokens')->name('onboarding.admin');
 });
 
 // The remaining onboarding steps (Minecraft directory, RCON, optional AI
@@ -96,9 +105,21 @@ Route::middleware(['auth'])->group(function () {
         Route::get('console', [ConsoleController::class, 'index'])->name('console');
         Route::post('console', [ConsoleController::class, 'compose'])->name('console.compose');
         Route::post('console/propose', [ConsoleController::class, 'propose'])->name('console.propose');
-        Route::post('console/run', [ConsoleController::class, 'run'])->name('console.run');
-        Route::post('console/actions/{key}', [ConsoleController::class, 'runSafeAction'])->name('console.actions.run');
-        Route::post('console/operations/{operation}/approve', [ConsoleController::class, 'approve'])->name('console.approve');
+        // Whole-branch fix pass: these three are the ONLY web-console
+        // routes that can put a real RCON command on the wire (run() and
+        // runSafeAction() execute a Safe command immediately; approve()
+        // is additionally the only route in the app that can execute an
+        // Elevated one — see App\Http\Controllers\ConsoleController's own
+        // docblock) and previously had no rate limiter at all, making
+        // this the least-restricted path to the highest-consequence
+        // action in the app — MCP's equivalent run_safe_rcon tool is
+        // capped at 60/min, /api/v1 as a whole at 120/min. The new
+        // 'console' limiter (App\Providers\AppServiceProvider::
+        // configureApiRateLimiting()) is 30/min, generous for a human
+        // operator clicking/typing in a browser.
+        Route::post('console/run', [ConsoleController::class, 'run'])->middleware('throttle:console')->name('console.run');
+        Route::post('console/actions/{key}', [ConsoleController::class, 'runSafeAction'])->middleware('throttle:console')->name('console.actions.run');
+        Route::post('console/operations/{operation}/approve', [ConsoleController::class, 'approve'])->middleware('throttle:console')->name('console.approve');
         Route::post('console/operations/{operation}/reject', [ConsoleController::class, 'reject'])->name('console.reject');
 
         Route::get('logs', [LogController::class, 'index'])->name('logs');

@@ -81,7 +81,7 @@ class OperationController extends Controller
             );
         }
 
-        $author = OperationAuthor::user($user->getKey());
+        $author = OperationAuthor::user($user->getKey(), 'api');
 
         $operation = $this->idempotency->resolve(
             $this->apiToken($request),

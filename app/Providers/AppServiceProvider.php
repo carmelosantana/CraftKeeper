@@ -303,6 +303,24 @@ class AppServiceProvider extends ServiceProvider
      *   session can reasonably make several tool/resource calls per
      *   user action (Task 18/20's own smoke/integration tests exercise
      *   more than one call per scenario).
+     *
+     * Whole-branch fix pass adds a sixth:
+     *
+     * - `console` — the web console's execute/approve routes
+     *   (routes/web.php `server/console/run`,
+     *   `server/console/actions/{key}`,
+     *   `server/console/operations/{operation}/approve`). These are the
+     *   ONLY web-console routes that can put a real RCON command on the
+     *   wire (approve() is additionally the only one that can do so for
+     *   an Elevated command — see App\Http\Controllers\ConsoleController's
+     *   own docblock) and, before this fix, were the single least-
+     *   restricted path to the highest-consequence action in the whole
+     *   app — MCP's functionally equivalent run_safe_rcon tool is capped
+     *   at 60/min and /api/v1 as a whole at 120/min, while these routes
+     *   had no limiter at all. 30/min is deliberately generous for a
+     *   human clicking/typing in a browser (roughly one command every two
+     *   seconds sustained for a full minute) while still bounding a
+     *   scripted or compromised-session flood.
      */
     protected function configureApiRateLimiting(): void
     {
@@ -324,6 +342,9 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('mcp', fn (Request $request) => Limit::perMinute(60)
             ->by($this->mcpClientIdForRateLimit() ?? $request->ip()));
+
+        RateLimiter::for('console', fn (Request $request) => Limit::perMinute(30)
+            ->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
     }
 
     /**

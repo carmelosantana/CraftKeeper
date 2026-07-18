@@ -2,8 +2,10 @@
 
 use App\Models\AuditEvent;
 use App\Models\Operation;
+use App\Models\Secret;
 use App\Models\User;
 use App\Operations\Exceptions\IllegalOperationTransition;
+use App\Operations\InputRedactor;
 use App\Operations\OperationActorType;
 use App\Operations\OperationAuthor;
 use App\Operations\OperationHandler;
@@ -137,6 +139,33 @@ it('lets a human reject an AI-authored operation with a reason', function () {
     expect($rejected->status)->toBe(OperationStatus::Rejected)
         ->and($rejected->outcome)->toBe('not needed right now')
         ->and($rejected->rejected_by_type)->toBe(OperationActorType::Human);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix 4: outcome is the one field with no redactor — close that gap at
+| OperationService's single choke point.
+|--------------------------------------------------------------------------
+*/
+
+it('redacts a known configured secret value out of outcome when rejecting an operation', function () {
+    Secret::put('rcon.password', 'super-secret-value-123');
+    $admin = User::factory()->create();
+
+    $operation = app(OperationService::class)->propose(
+        OperationRequest::pluginRemove('example-plugin'),
+        OperationAuthor::ai('session-1')
+    );
+
+    $reason = 'Not now — rcon.password is currently super-secret-value-123, revisit later.';
+    $rejected = app(OperationService::class)->reject($operation->id, $admin, $reason);
+
+    expect($rejected->outcome)
+        ->not->toContain('super-secret-value-123')
+        ->toContain(InputRedactor::MASK);
+
+    // Persisted, not merely held on the in-memory instance returned above.
+    expect($operation->fresh()->outcome)->not->toContain('super-secret-value-123');
 });
 
 /*

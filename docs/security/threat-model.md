@@ -96,7 +96,9 @@ enters, and validated/bounded/redacted before it can affect anything.
 - **Minecraft console output is not secret-scrubbed.** Unlike every
   CraftKeeper-owned secret (RCON password, AI API key, schema-flagged
   config values — all covered by `App\Ai\SecretRedactor`/`App\Config\
-  ConfigDiffBuilder`/`App\Support\SecretRedactor`), the Minecraft
+  ConfigDiffBuilder`, and, since the whole-branch fix pass, `Operation::
+  outcome` via `App\Operations\OperationService`'s own redaction choke
+  point), the Minecraft
   server's own stdout (tailed into `ConsoleEntry`, broadcast verbatim by
   `App\Events\ConsoleEntryReceived`) is free-form text CraftKeeper does
   not control the shape of — a plugin or player could cause the console
