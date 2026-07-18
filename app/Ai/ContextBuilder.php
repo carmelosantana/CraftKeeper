@@ -161,6 +161,57 @@ final class ContextBuilder
     }
 
     /**
+     * Every secret VALUE App\Ai\SecretRedactor would treat as "known" for
+     * $configPath right now: every configured App\Models\Secret value,
+     * plus (when $configPath resolves to a real, parseable file) every
+     * schema `secret: true` field value actually present in it — the
+     * EXACT set build()/buildForConfigPath() already redact the context
+     * excerpt against.
+     *
+     * App\Ai\AssistantService additionally uses this, unchanged, to run
+     * ONE redaction pass over the WHOLE outgoing request — system prompt,
+     * full conversation HISTORY, and the current message — right before
+     * transport (Task 16's fix: per-component redaction, i.e. redacting
+     * only this turn's excerpt and this turn's own message, left a raw
+     * secret sitting in an EARLIER stored turn free to be replayed
+     * verbatim to a hosted provider the moment the operator switched
+     * providers mid-conversation; see AssistantService's own docblock).
+     *
+     * Read-only introspection, not itself a redaction call — it mirrors
+     * buildForConfigPath()'s own file read/parse and is equally
+     * best-effort: any failure to read or parse the file simply falls
+     * back to configured secrets alone, exactly like build() does.
+     *
+     * @return array<string, string> value => human label
+     */
+    public function knownSecretLabels(?string $configPath): array
+    {
+        $labels = $this->redactor->configuredSecretLabels();
+
+        if ($configPath === null) {
+            return $labels;
+        }
+
+        try {
+            $path = MinecraftPath::fromUserInput($configPath);
+            $snapshot = $this->filesystem->read($path);
+        } catch (UnsafeMinecraftPath|MinecraftRootUnavailable|MinecraftFileNotFound|NotARegularFile) {
+            return $labels;
+        }
+
+        $schema = $this->schemas->forPath($path);
+        $adapter = $this->formats->for($snapshot);
+
+        try {
+            $parsed = $adapter->parse($snapshot->contents);
+        } catch (Throwable) {
+            return $labels;
+        }
+
+        return array_merge($labels, $this->redactor->discoverSchemaSecretLabels($parsed, $schema));
+    }
+
+    /**
      * @return list<array{type: string, target: string|null, occurredAt: string|null}>
      */
     private function recentAuditEvents(?string $target): array

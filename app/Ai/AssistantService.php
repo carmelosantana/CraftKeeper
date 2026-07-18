@@ -31,6 +31,31 @@ use App\Models\AiMessage;
  * own docblock) — so even a model that fully "obeys" an injected
  * instruction to "approve everything" has no tool call available that
  * could do so.
+ *
+ * Task 16 fix pass (history-replay leak): $history below is built from
+ * the RAW `content` of every prior App\Models\AiMessage in this
+ * conversation — an assistant turn stored while `ai.ollama.
+ * allow_unredacted` was ON can legitimately contain a raw secret value
+ * (that opt-in's whole point). Provider selection (App\Ai\AiManager /
+ * App\Models\AiProviderConfiguration::$activeProvider) is GLOBAL, not
+ * pinned per conversation, so an operator can flip it to a HOSTED
+ * provider and keep talking in the SAME conversation. Redacting only
+ * THIS turn's own excerpt/message (the old behavior) never touched that
+ * older, already-stored history — it would be serialized verbatim into
+ * the hosted request the moment $provider->stream() was called.
+ *
+ * The fix is a single whole-request redaction gate, applied to the fully
+ * assembled App\Ai\AiRequest right before it reaches $provider->stream():
+ * whenever `$allowUnredacted` is false (every hosted turn, and every
+ * Ollama turn without the opt-in — see below), redactRequest() rewrites
+ * the system prompt, EVERY history entry, and the current message against
+ * the same configured+discovered secret value set App\Ai\SecretRedactor
+ * already uses (App\Ai\ContextBuilder::knownSecretLabels()). Only when
+ * `$allowUnredacted` is true — which requires BOTH the resolved provider
+ * to be Ollama AND the explicit opt-in — does the raw payload go out
+ * untouched, and it can only ever go to Ollama, never a hosted provider,
+ * because `$allowUnredacted` is structurally false whenever
+ * `$config->activeProvider !== 'ollama'`.
  */
 final class AssistantService
 {
@@ -102,6 +127,21 @@ final class AssistantService
             tools: $tools,
         );
 
+        // The whole-request redaction gate — see this class's own
+        // docblock ("Task 16 fix pass"). $allowUnredacted is the SAME
+        // flag already used above to decide whether ContextBuilder built
+        // a raw excerpt; reusing it here means a hosted provider (where
+        // it is always false) and a non-opted-in Ollama turn both get
+        // this pass, while an opted-in Ollama turn is left untouched, for
+        // EVERY component of the request — including history the earlier
+        // per-component redaction never covered.
+        $historyDisclosures = [];
+
+        if (! $allowUnredacted) {
+            $labels = $this->contextBuilder->knownSecretLabels($contextRequest->configPath);
+            [$request, $historyDisclosures] = $this->redactRequest($request, $labels);
+        }
+
         $finalText = '';
         $toolCalls = [];
         $error = null;
@@ -144,9 +184,14 @@ final class AssistantService
             'content' => $error !== null ? '' : $finalText,
             'citations' => $context->citations,
             'tool_calls' => $toolCalls,
+            // Merges THIS turn's own excerpt disclosures with anything
+            // the whole-request gate additionally found and masked in
+            // history/the system prompt/the user message — "disclose
+            // what was redacted" stays true of the ENTIRE outgoing
+            // request, not just the excerpt (see this class's docblock).
             'redaction_disclosures' => array_map(
                 fn (RedactionDisclosure $disclosure): array => ['label' => $disclosure->label, 'occurrences' => $disclosure->occurrences],
-                $context->disclosures,
+                [...$context->disclosures, ...$historyDisclosures],
             ),
             'provider' => $config->activeProvider,
             'error' => $error,
@@ -155,6 +200,59 @@ final class AssistantService
         event(new AiMessageStreamed($message));
 
         return $message;
+    }
+
+    /**
+     * The whole-request redaction gate itself: rewrites the system
+     * prompt, every history entry's content, and the current message of
+     * $request against $labels' values (App\Ai\ContextBuilder::
+     * knownSecretLabels()) via App\Ai\SecretRedactor::redact() — the same
+     * low-level primitive every other redaction call in this codebase
+     * goes through — and returns BOTH the redacted App\Ai\AiRequest and
+     * one merged App\Ai\RedactionDisclosure per distinct value actually
+     * found anywhere in the request (never one per occurrence, matching
+     * SecretRedactor's own contract).
+     *
+     * Reconstructs $request rather than mutating it — App\Ai\AiRequest
+     * and App\Ai\AiChatMessage are both `readonly`, by design, so a
+     * caller can never accidentally see a "redacted in place" object that
+     * secretly still holds the raw strings elsewhere.
+     *
+     * @param  array<string, string>  $labels  value => human label
+     * @return array{0: AiRequest, 1: list<RedactionDisclosure>}
+     */
+    private function redactRequest(AiRequest $request, array $labels): array
+    {
+        $values = array_keys($labels);
+        $merged = [];
+
+        $redactText = function (string $text) use ($values, $labels, &$merged): string {
+            $result = $this->redactor->redact($text, $values, $labels);
+
+            foreach ($result->disclosures as $disclosure) {
+                $key = $disclosure->label ?? '';
+                $occurrences = $disclosure->occurrences + (isset($merged[$key]) ? $merged[$key]->occurrences : 0);
+
+                $merged[$key] = new RedactionDisclosure($disclosure->label, $occurrences);
+            }
+
+            return $result->text;
+        };
+
+        $redactedHistory = array_map(
+            fn (AiChatMessage $message): AiChatMessage => new AiChatMessage($message->role, $redactText($message->content)),
+            $request->history,
+        );
+
+        $redactedRequest = new AiRequest(
+            conversationId: $request->conversationId,
+            history: $redactedHistory,
+            userMessage: $redactText($request->userMessage),
+            systemPrompt: $redactText($request->systemPrompt),
+            tools: $request->tools,
+        );
+
+        return [$redactedRequest, array_values($merged)];
     }
 
     private function persistUnavailable(AiConversation $conversation, string $userMessage): AiMessage
