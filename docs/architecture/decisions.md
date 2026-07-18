@@ -1452,3 +1452,83 @@ or freshly reloaded and immediately re-editable (approve/execute
 failure) plus a toast explaining what happened — not a dedicated "Retry"
 button. Noted as a disclosed, minor UX gap in the Task 9 report rather
 than a silently-skipped requirement.
+
+## Milestone 2 Gate Fix — E2E Suite Isolation (Order-Independent Full Suite)
+
+**Bug: `npm run e2e` failed 1/13 (`onboarding.spec.ts`'s "first-run setup
+is reachable" assertion) even though `--grep onboarding` alone always
+passed — order-dependent shared database state, not a product bug.**
+`playwright.config.ts`'s `webServer` ran `php artisan migrate:fresh`
+exactly ONCE, at server boot, then served ONE shared sqlite database to
+every spec file for the rest of the run. `onboarding.spec.ts`'s first test
+assumes NO admin exists yet (`GET /onboarding` must be reachable, per
+`RequireInstallation`/`InstallationState` — Task 4); `configuration.spec.
+ts` creates its own admin in `beforeAll`/`beforeEach` (`ensureLoggedInAdmin
+()`, Task 9). Playwright's default run order is alphabetical by file
+(`configuration.spec.ts` before `onboarding.spec.ts`), and the original
+`fullyParallel: true` plus an unbounded local worker count made the
+ordering even less predictable across machines. Either way, once
+`configuration.spec.ts` had created an admin, `onboarding.spec.ts`'s
+"first-run reachable" assumption was already false — `GET /onboarding`
+404s the instant any admin exists, by design (Task 4's whole point).
+`--grep onboarding` only ever passed because it made onboarding the sole
+spec on the still-fresh boot-time database.
+
+**Fix: approach (A) from the M2 gate brief — a strictly-gated, test-only
+`POST /__e2e__/reset` endpoint, combined with fully serial execution.**
+Each spec file that depends on install state now resets the database
+itself, in its own `beforeAll`, via this endpoint, before assuming
+anything about who else has or hasn't run:
+`onboarding.spec.ts` resets to guarantee zero users (its whole premise);
+`configuration.spec.ts` resets to guarantee ITS OWN admin gets created
+fresh with ITS OWN credentials (`ensureLoggedInAdmin()`'s "log in"
+fallback branch would otherwise try the wrong password against whichever
+admin a different spec file created first, and hang).
+`design-system.spec.ts` needs no reset — its route is public and
+independent of install state (Task 3) — so it is unchanged.
+
+This alone does not make the suite deterministic: all spec files still
+share ONE real server process and ONE sqlite file (there is no
+per-worker database), so a reset in one file's `beforeAll` racing a
+request from another file mid-test would corrupt both. `playwright.config
+.ts` therefore also sets `fullyParallel: false` and `workers: 1`
+unconditionally (previously `workers: process.env.CI ? 1 : undefined`,
+meaning unbounded parallelism locally) so exactly one spec file's tests
+ever run at a time, everywhere, not just in CI. Combined, the full suite
+is now order-independent: any spec file may run in any position, and each
+establishes its own correct baseline regardless of what ran before it.
+Verified by running `npm run e2e` twice in a row (fresh install both
+times, since the two invocations are separate CLI processes and Playwright
+tears its own `webServer` down when each one exits) — all 13 tests green
+both times.
+
+**Production-safety gating for `/__e2e__/reset` (`App\Http\Controllers\
+E2eResetController`, registered from `routes/testing.php`) — reviewed as
+a hard security constraint, not an incidental detail:**
+
+1. `routes/testing.php` registers the route ONLY when
+   `E2eResetController::allowed()` is true, which requires BOTH
+   `app()->environment(['local', 'testing'])` AND
+   `config('craftkeeper.e2e_testing') === true`. The Dockerfile
+   hard-codes `ENV APP_ENV=production`, and `config('app.env')` itself
+   defaults to `'production'` if `APP_ENV` were ever unset
+   (`config/app.php`) — so the environment half of the guard fails
+   unconditionally for every real deployment, independent of the second
+   flag.
+2. `config('craftkeeper.e2e_testing')` is sourced from the `E2E_TESTING`
+   env var (`config/craftkeeper.php`). That variable is set to `'true'`
+   in exactly ONE place: `playwright.config.ts`'s `webServer.env`. It is
+   **not** present in `.env`, `.env.example`, `compose.example.yml`, or
+   the `Dockerfile` — confirmed by grep across all four before this
+   change was committed.
+3. `E2eResetController::__invoke()` re-checks the IDENTICAL guard
+   (`self::allowed()`) itself and `abort(404)`s if it fails — belt and
+   suspenders: even a future accidental registration of this route
+   outside `routes/testing.php`'s own `if` still cannot execute it.
+4. The endpoint takes no request input of any kind (it is a bare
+   `Artisan::call('migrate:fresh', ['--force' => true])`), so there is no
+   parameter surface that could change what gets reset or make it
+   dangerous even if reachable. Nothing in production code — controllers,
+   services, jobs — references this route or `E2eResetController`; it
+   exists solely for `tests/e2e/*.spec.ts` `beforeAll` hooks to call over
+   HTTP via Playwright's `request` fixture.

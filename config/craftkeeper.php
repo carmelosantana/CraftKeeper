@@ -37,4 +37,24 @@ return [
 
     'minecraft_root' => env('MINECRAFT_ROOT', storage_path('craftkeeper/minecraft')),
 
+    /*
+    |--------------------------------------------------------------------------
+    | E2E Testing Mode
+    |--------------------------------------------------------------------------
+    |
+    | Gates the test-only database reset endpoint (routes/testing.php,
+    | App\Http\Controllers\E2eResetController) that the Playwright suite
+    | uses to give every e2e spec file its own deterministic, order-
+    | independent baseline. This flag alone does not enable the route —
+    | routes/testing.php also requires app()->environment(['local',
+    | 'testing']), and the controller re-checks BOTH conditions itself and
+    | 404s if either fails. Set ONLY by playwright.config.ts's
+    | `webServer.env`; it must never appear in .env, .env.example,
+    | compose.example.yml, or the Dockerfile. See
+    | docs/architecture/decisions.md for the full rationale.
+    |
+    */
+
+    'e2e_testing' => (bool) env('E2E_TESTING', false),
+
 ];

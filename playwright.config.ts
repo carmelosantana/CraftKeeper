@@ -32,10 +32,21 @@ const E2E_MINECRAFT_ROOT = path.resolve(
 
 export default defineConfig({
     testDir: './tests/e2e',
-    fullyParallel: true,
+    // Every spec file shares ONE real server process backed by ONE
+    // sqlite file (see `webServer` below) — there is no per-worker
+    // isolation. Each spec file resets that shared database to its own
+    // deterministic baseline in `beforeAll` via the test-only
+    // `/__e2e__/reset` endpoint (see routes/testing.php), which makes
+    // specs independent of each other's state — but that independence
+    // only holds if resets and requests from different spec files never
+    // interleave. `fullyParallel: false` + `workers: 1` (always, not just
+    // CI) guarantees exactly one spec file's tests run at a time, so a
+    // reset can never race a request from another file. See "Task: e2e
+    // isolation" in docs/architecture/decisions.md.
+    fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 1 : undefined,
+    workers: 1,
     reporter: 'list',
     use: {
         baseURL: process.env.APP_URL ?? `http://${HOST}:${PORT}`,
@@ -75,6 +86,19 @@ export default defineConfig({
         stderr: 'pipe',
         env: {
             MINECRAFT_ROOT: E2E_MINECRAFT_ROOT,
+            // Enables the test-only POST /__e2e__/reset endpoint (see
+            // routes/testing.php + app/Http/Controllers/
+            // E2eResetController.php) that each spec file's `beforeAll`
+            // calls to give itself a clean, freshly-migrated database
+            // regardless of what any other spec file already did to it —
+            // that's what makes the full suite order-independent. Set
+            // ONLY here: this flag must never appear in .env,
+            // .env.example, compose.example.yml, or the Dockerfile. Even
+            // if it were, the route also requires
+            // app()->environment(['local', 'testing']) — the Dockerfile
+            // hard-codes APP_ENV=production — and the controller
+            // re-checks both conditions itself before doing anything.
+            E2E_TESTING: 'true',
         },
     },
 });

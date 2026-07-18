@@ -83,3 +83,8 @@ Route::middleware(['auth'])->group(function () {
 });
 
 require __DIR__.'/settings.php';
+
+// Test-only e2e reset endpoint — see routes/testing.php's own docblock for
+// the production-safety guard. Required unconditionally; the route inside
+// is registered only under a strict local/testing + env-flag guard.
+require __DIR__.'/testing.php';

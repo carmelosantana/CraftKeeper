@@ -4,12 +4,21 @@ import { generateTotp } from './support/totp';
 /**
  * Task 4 — single-admin onboarding, login, TOTP, and secrets.
  *
- * These three tests share one real server-side install (the sqlite
- * database `playwright.config.ts`'s `webServer` resets via `migrate:fresh`
- * before each fresh run) and depend on running in this order: onboarding
- * creates the one-and-only admin account, login proves it works, and
- * two-factor builds on both. `test.describe.serial` guarantees that order
- * and that they never run concurrently with each other.
+ * These three tests share one real server-side install and depend on
+ * running in this order: onboarding creates the one-and-only admin
+ * account, login proves it works, and two-factor builds on both.
+ * `test.describe.serial` guarantees that order and that they never run
+ * concurrently with each other.
+ *
+ * The first test's baseline assumption — NO admin exists yet, so
+ * `/onboarding` is reachable — cannot rely on `playwright.config.ts`'s
+ * `webServer` having *just* run `migrate:fresh`: that only resets the
+ * database once, at server boot, and `configuration.spec.ts` (which also
+ * creates an admin) may run before this file in the same suite. This
+ * file's own `beforeAll` resets the database itself via the test-only
+ * `/__e2e__/reset` endpoint (see routes/testing.php), so this spec's
+ * baseline holds no matter what ran before it or what order the suite
+ * runs in.
  */
 const ADMIN_EMAIL = 'admin@craftkeeper.test';
 const ADMIN_PASSWORD = 'a-very-long-unique-onboarding-passphrase';
@@ -17,6 +26,16 @@ const RCON_PASSWORD = 'a-super-secret-e2e-rcon-password';
 
 test.describe.serial('onboarding, login, and two-factor', () => {
     let recoveryCode = '';
+
+    test.beforeAll(async ({ request }) => {
+        const reset = await request.post('/__e2e__/reset');
+        if (!reset.ok()) {
+            throw new Error(
+                `Failed to reset the e2e database before onboarding.spec.ts (status ${reset.status()}). ` +
+                    'Is E2E_TESTING=true set on the webServer process (see playwright.config.ts)?',
+            );
+        }
+    });
 
     test('onboarding: first-run setup is reachable without login and disappears once complete', async ({
         page,

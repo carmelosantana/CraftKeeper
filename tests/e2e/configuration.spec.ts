@@ -22,6 +22,18 @@ import type { Page } from '@playwright/test';
  * (see playwright.config.ts's E2E_MINECRAFT_ROOT) before any test runs,
  * so the redaction assertions below are exercising the real mechanism,
  * not a vacuous fixture with nothing to redact.
+ *
+ * This file creates its OWN admin account (`ADMIN_EMAIL`/`ADMIN_PASSWORD`
+ * below), so it cannot assume the database is still in the "no admin"
+ * state `playwright.config.ts`'s `webServer` left it in at boot — another
+ * spec file (e.g. onboarding.spec.ts) may have already run and created a
+ * *different* admin with different credentials, which would make this
+ * file's own `ensureLoggedInAdmin()` fall into its "log in" branch with
+ * the wrong password and hang. `beforeAll` below resets the database via
+ * the test-only `/__e2e__/reset` endpoint (see routes/testing.php) before
+ * anything else runs, so this file always starts from zero users and
+ * `ensureLoggedInAdmin()` always takes its "create the admin" branch on
+ * this file's first test, regardless of what ran before it.
  */
 const ADMIN_EMAIL = 'admin@craftkeeper.test';
 const ADMIN_PASSWORD = 'a-very-long-unique-config-e2e-passphrase';
@@ -36,7 +48,15 @@ const MINECRAFT_ROOT = path.resolve(
     'storage/craftkeeper/e2e-minecraft',
 );
 
-test.beforeAll(() => {
+test.beforeAll(async ({ request }) => {
+    const reset = await request.post('/__e2e__/reset');
+    if (!reset.ok()) {
+        throw new Error(
+            `Failed to reset the e2e database before configuration.spec.ts (status ${reset.status()}). ` +
+                'Is E2E_TESTING=true set on the webServer process (see playwright.config.ts)?',
+        );
+    }
+
     const propertiesPath = path.join(MINECRAFT_ROOT, 'server.properties');
     const contents = fs.readFileSync(propertiesPath, 'utf8');
 
