@@ -2586,3 +2586,241 @@ already established elsewhere in this codebase, rather than suppressing
 either finding; Pint clean), `npm run typecheck` (clean, unaffected —
 this task touched no TypeScript), `npm run test` (Vitest, 14/14,
 unaffected), `npm run build` (succeeds, unaffected bundle).
+
+## Task 14 — Unified Plugin Catalog, Hangar, and Modrinth
+
+**New dependency: `justinrainbow/json-schema` (`^6.10`).** Nothing already
+in `composer.json` validates JSON against a JSON Schema document, and the
+brief's contract test ("a contract test validates each fixture against
+the schema") calls for real draft-07 validation, not a hand-rolled
+approximation. Resolved cleanly on PHP 8.4 with one transitive dependency
+(`marc-mabe/php-enum`). It is used in exactly one place,
+`App\Catalog\CatalogSchemaValidator` — see that class's docblock for why
+`App\Catalog\Sources\CraftKeeperCatalogSource` deliberately does NOT run
+every live-fetched document through it (whole-document JSON Schema
+validation is all-or-nothing; one malformed release among many would
+mark the entire document invalid, which is exactly the "not crashes"
+failure mode the brief rules out). The runtime source instead
+re-implements the same required-field/sha256-pattern rules independently
+in plain PHP, per release, in `App\Catalog\Sources\
+CraftKeeperReleaseNormalizer` — the schema library only backs the
+CONTRACT test itself.
+
+**A new `Contract` PHPUnit/Pest test suite.** The brief names `tests/
+Contract/Catalog/PluginCatalogContractTest.php` as a required file, but
+no `Contract` suite existed in `phpunit.xml` or `tests/Pest.php` before
+this task (only `Unit`/`Feature`/`Integration`). Added a `<testsuite
+name="Contract">` entry and extended `tests/Pest.php`'s no-RefreshDatabase
+group (`Unit, Integration, Contract`) so `php artisan test` and
+`composer test`'s bare `php artisan test` actually discover and run it —
+without this, the contract test would only ever run when explicitly
+pathed, and would silently be absent from CI's default invocation.
+
+**Global `Http::preventStrayRequests()` in `tests/TestCase.php`.** The
+task's hard requirement is "EVERY test uses HTTP fakes/fixtures — no real
+network is ever contacted." Rather than trust that every current AND
+future catalog test remembers to call `Http::fake()` first, `setUp()` now
+calls `Http::preventStrayRequests()` unconditionally for the whole suite
+— any un-faked HTTP call from ANY test throws immediately instead of
+silently reaching a real host or hanging. Confirmed safe: `grep -rln
+"Facades\\Http" app/ --include=*.php` matches only `app/Catalog/**` (this
+task is the first and only code in the app that uses the HTTP client at
+all), so this cannot affect any pre-existing test's behavior.
+
+**Two real Laravel HTTP-client gotchas found empirically, not assumed —
+both material to correctness, not style:**
+
+1. **`Http::retry($times, ...)`'s `$times` is the TOTAL number of
+   attempts, not the number of retries beyond the first.** Read from
+   `PendingRequest::send()`'s use of the global `retry()` helper
+   (`vendor/laravel/framework/.../helpers.php`): each iteration
+   decrements `$times` and stops once it hits zero, so `retry(2, ...)`
+   executes the callback exactly twice total — one retry, not two. This
+   was caught by an empirical `Http::fake()` + `Http::assertSentCount()`
+   check (`3` expected, `2` actual) before it could hide in a passing-
+   but-wrong test; `App\Catalog\Transport\CatalogHttpClient` calls
+   `->retry($config['retries'] + 1, ...)`, documented inline, so "2
+   retries" in config and in the brief actually means 3 total attempts.
+   Every retry test in `HangarSourceTest`/`ModrinthSourceTest` asserts
+   the exact attempt count via `Http::assertSentCount()`, not just "it
+   eventually succeeded," specifically so this class of off-by-one can't
+   silently regress.
+2. **Calling `Http::fake([...])` a second time within one test does NOT
+   replace earlier stubs — it appends to them, and the FIRST-registered
+   matching stub wins** (`Factory::fake()`/`stubUrl()` `merge()` new
+   stubs onto the end of `$stubCallbacks`, and `PendingRequest::
+   buildStubHandler()` resolves via `->filter()->first()` in insertion
+   order). A first attempt at the source-isolation end-to-end test (fake
+   success, run a search, `$this->travel()`, fake failure, run a second
+   search) silently kept succeeding on the second search because the
+   FIRST fake's success stub for the same URL pattern was still
+   registered and matched before the second fake's failure stub was ever
+   consulted. Fixed by using a single `Http::fake([...])` call per test
+   with `Http::sequence()->push(...)` for any URL whose behavior needs to
+   change across multiple calls within the same test — queuing exactly
+   enough responses to cover every attempt (including retries) of every
+   phase. Used in `UnifiedCatalogServiceTest`'s end-to-end isolation test
+   and `CraftKeeperCatalogSourceTest`'s two retention-window tests; noted
+   inline at each use so it isn't rediscovered the hard way again.
+
+**Dedup identity vs. cross-source merging — read literally, not as a
+design fork.** The brief's "deduplicate by EXACT project/source IDENTITY
+(source + project id), NOT by name" was read as: within the aggregated
+result set, collapse only an EXACT repeat of the same `(source,
+projectId)` pair (which can legitimately arise from overlapping pages,
+retries, or a stale-cache fallback contributing the same project twice)
+— never collapse two DIFFERENT `(source, projectId)` pairs just because
+their names happen to match, and never collapse across DIFFERENT
+sources even when they represent "the same" real-world plugin (a Hangar
+listing and a Modrinth listing of the same plugin are two separate,
+separately-badged results by construction, since `PluginReleaseId`
+includes source). This directly satisfies "every merged result retains
+its source badge and source URL" — collapsing across sources would force
+picking one badge and silently losing the others', which the brief
+explicitly rules out ("without erasing provenance"). This was NOT treated
+as an escalation-worthy fork: the brief states the rule unambiguously,
+and the alternative (fuzzy cross-source name-matching to "merge the same
+plugin") is exactly the kind of invented, unspecified heuristic the
+brief's "do NOT invent an opaque popularity score" spirit warns against
+one sentence later.
+
+**Degradation isolation is structural, not defensive — two independent
+layers, mirroring `JarInspector`'s Task 13 precedent.** `App\Catalog\
+PluginSource::search()` carries a "never throws" contract (documented on
+the interface itself, same pattern as `JarInspector::inspect()` "always
+returns a result"): `App\Catalog\Sources\AbstractPluginSource::search()`
+is `final` and catches exactly `App\Catalog\Exceptions\
+PluginSourceException` (never a bare `\Throwable` — an actual bug must
+still surface loudly rather than being silently relabeled "just another
+degraded source," the same reasoning behind `PluginInventoryService`'s
+multi-type, never-bare catch from Task 13's fix pass). Because that
+contract holds for every adapter, `App\Catalog\UnifiedCatalogService::
+search()` needs NO try/catch of its own at all — it is structurally
+impossible for one source's outage to prevent another source's page (or
+its own stale cache) from being merged in, rather than something that
+depends on a caller remembering to guard against it.
+
+**Response-size limit: two independent checks, consciously reusing the
+`JarInspector` "declared-size lies" pattern rather than a single check.**
+`App\Catalog\Transport\CatalogHttpClient::get()` refuses BEFORE reading
+the body if `Content-Length` alone already exceeds the limit, and
+independently refuses AFTER reading the body if the actual byte count
+exceeds it (covering a missing, wrong, or understated `Content-Length`).
+Neither check ever attempts to decode an oversized body. True
+socket-level streaming enforcement (aborting mid-read from a real TCP
+connection) is not achievable through `Http::fake()`'s in-memory
+transport, so the two-check design is what's both genuinely protective
+against a hostile/broken server AND fully fixture-testable — documented
+as a conscious parity choice, not an oversight, in `App\Catalog\
+Exceptions\PluginSourceResponseTooLarge`'s docblock.
+
+**Caching rides on `CatalogCacheEntry` (a real table), not the `Cache`
+facade.** The brief names `App\Models\CatalogCacheEntry` as a file to
+create, and the test environment's `CACHE_STORE=array` (ephemeral,
+per-process) would make the 7-day "last successful CraftKeeper Catalog"
+retention untestable/meaningless via the `Cache` facade in this suite. A
+dedicated table (`App\Catalog\CatalogCache` wrapping it) makes both the
+15-minute freshness and the 7-day retention windows explicit columns
+(`fresh_until`, `expires_at`) that survive a cache flush and are
+trivially assertable in tests (`CatalogCacheEntry::query()->...`) rather
+than depending on cache-driver-specific TTL semantics.
+
+**The 7-day stale-while-error retention is applied uniformly to all
+three sources, not only the CraftKeeper Catalog.** The brief's literal
+wording ("retain the last successful CraftKeeper Catalog for 7 days")
+names only the CraftKeeper source, but nothing about the mechanism
+(`App\Catalog\CatalogCache::isWithinRetention()`) is CraftKeeper-specific,
+and applying it to Hangar/Modrinth's per-query page cache too only
+strengthens "cached results remain available" (ambiguity resolution #5)
+for every source symmetrically, at zero extra design cost. Documented in
+`config/catalog.php`'s `cache` section and each source's tests
+(`HangarSourceTest`, `ModrinthSourceTest`, `CraftKeeperCatalogSourceTest`
+all exercise the same 15-minute/stale-cache mechanics).
+
+**Sort tiers, and the "source trust" vs. "source ranking" wording.** The
+brief lists four sort keys: "compatibility confidence, installed
+relevance, source trust, then source ranking." The first three map
+directly onto concrete, already-available signals (`App\Catalog\
+UnifiedCatalogService::compatibilityRank()` reads the SAME `App\Plugins\
+PluginCompatibilityEvidence` values every source attaches per release —
+never a second, independently invented score; `App\Catalog\
+InstalledPluginIndex` checks Task 13's `plugin_installations` by name;
+"source trust" is a small, fixed, documented, non-dynamic ranking —
+Catalog(0) < Hangar(1) < Modrinth(2) — never derived from downloads,
+stars, or any other popularity metric). "Source ranking" was read as the
+final deterministic tiebreak needed to guarantee NO two distinct releases
+ever compare equal (name, then project id) — otherwise PHP's `usort`
+being stable-since-8.0 would still leave the order dependent on
+merge/iteration order rather than being independently reproducible from
+the data alone. Tested directly: `UnifiedCatalogServiceTest`'s "breaks a
+full tie deterministically" case runs `search()` twice and asserts
+byte-identical ordering both times.
+
+**Withdrawn releases: schema-valid, but excluded from active search;
+never silently 404 on a direct lookup.** A `withdrawn: true` release
+normalizes successfully (it has every required field) but `App\Catalog\
+Sources\CraftKeeperCatalogSource::filterItems()` excludes it from
+search() results and from an unqualified "latest" `release()` lookup —
+while a release() call naming its EXACT version can still resolve a
+withdrawn release. Read as the more useful default given the brief's
+general "provenance/information is never silently erased" theme
+elsewhere (Task 13's `missing_since` instead of deletion is the same
+instinct applied to a different table) — an operator who already has a
+since-withdrawn version installed should be able to find out what it is,
+not get a bare 404. Tested directly in `CraftKeeperCatalogSourceTest`.
+
+**Known simplifications, recorded rather than silently assumed away:**
+
+- Hangar/Modrinth `search()` results are SUMMARIES: `downloadUrl`/
+  `sha256` are `null` until `release()` resolves a concrete version, since
+  neither source's real search/list endpoint exposes a specific file's
+  hash (only their per-version detail endpoint does — see `PluginRelease`'s
+  and each adapter's docblocks). This is a reading of the real APIs, not
+  a shortcut: fetching every matched project's version detail during
+  every search would be a real N+1 HTTP cost against a live API for
+  information a search UI doesn't need until the operator picks one
+  result to install.
+- Only `App\Catalog\Sources\CraftKeeperCatalogSource` applies the
+  `minecraftVersion`/`platform` filters server-independently (it filters
+  client-side, since it holds the whole document already); Hangar and
+  Modrinth's adapters only forward the free-text `query` parameter to
+  their search endpoints in this task — neither API's facet/filter query
+  syntax is wired up. `App\Catalog\CatalogCompatibilityEvidence` still
+  attaches accurate per-release evidence against the requested Minecraft
+  version regardless (used for sorting), so this narrows what's
+  SERVER-SIDE filtered, not the accuracy of what's shown.
+- `App\Catalog\UnifiedCatalogService` does not implement true
+  cross-source pagination (a stable cursor spanning all three sources'
+  independent result sets) — `page`/`perPage` are forwarded to each
+  source's own query, and the merged/sorted/deduped result can therefore
+  contain up to the sum of each source's own page size. A real
+  cross-source cursor scheme is out of scope for this task's tested
+  behaviors (dedup identity, deterministic sort, degradation isolation,
+  caching) and was not requested by the brief.
+- Hangar/Modrinth fixtures (`tests/fixtures/catalog/hangar/*.json`,
+  `tests/fixtures/catalog/modrinth/*.json`) are best-effort
+  reconstructions of each API's documented public shape (hangar.papermc.io
+  /api-docs, docs.modrinth.com/api) built from training-time knowledge,
+  since the sandbox this task ran in was not used to contact either live
+  API (per the brief: no test may ever do so, and nothing outside a test
+  did either). Every adapter's docblock says explicitly that its
+  `normalize*()` methods are the one place to update if the live shape
+  differs — normalization logic is intentionally isolated from
+  merge/dedup/sort/cache/isolation logic so a real-shape correction stays
+  a small, contained change.
+
+**Gates, run for real:** `php artisan test tests/Contract/Catalog
+tests/Feature/Catalog` (45 tests: 6 `PluginCatalogContractTest` + 10
+`UnifiedCatalogServiceTest` + 12 `HangarSourceTest` + 6 `ModrinthSourceTest`
++ 11 `CraftKeeperCatalogSourceTest`; all passing). `composer test` (603
+tests total — the prior 558 baseline plus this task's 45 — 593 passed, 10
+pre-existing skips, 0 new failures; PHPStan level 7 clean after fixing
+real findings, none suppressed — see "Self-review" in the task report for
+the full list; Pint clean after `vendor/bin/pint`). `npm run typecheck`
+(clean, unaffected — this task touched no TypeScript/frontend code).
+`npm run test` (Vitest, 14/14, unaffected). `npm run build` (succeeds,
+unaffected bundle). One unrelated test, `SampleServerStateTest`'s RCON
+backoff-window case, failed exactly once across many full-suite runs and
+passed both standalone and on every other full-suite run — a pre-existing
+timing-sensitive flake in Task 10/12's territory, not this task's; this
+task touches no RCON/server-observation code.

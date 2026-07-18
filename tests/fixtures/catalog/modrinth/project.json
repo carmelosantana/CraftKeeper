@@ -1,0 +1,17 @@
+{
+  "id": "AANobbMI",
+  "slug": "sodium-essentials",
+  "title": "Sodium Essentials",
+  "description": "A lightweight essentials-style plugin for Paper/Spigot servers.",
+  "categories": ["utility", "economy", "paper", "spigot"],
+  "client_side": "unsupported",
+  "server_side": "required",
+  "body": "Full description...",
+  "status": "approved",
+  "license": { "id": "MIT", "name": "MIT License", "url": null },
+  "source_url": "https://github.com/example/sodium-essentials",
+  "issues_url": "https://github.com/example/sodium-essentials/issues",
+  "project_type": "plugin",
+  "downloads": 250000,
+  "icon_url": "https://cdn.modrinth.com/data/AANobbMI/icon.png"
+}

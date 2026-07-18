@@ -1,0 +1,52 @@
+{
+  "pagination": { "limit": 25, "offset": 0, "count": 2 },
+  "result": [
+    {
+      "id": 1234,
+      "name": "EssentialsX",
+      "namespace": { "owner": "EssentialsX", "slug": "EssentialsX" },
+      "description": "Provides essential commands and features for Minecraft servers.",
+      "category": "admin_tools",
+      "createdAt": "2021-01-01T00:00:00Z",
+      "lastUpdated": "2026-06-01T00:00:00Z",
+      "visibility": "public",
+      "settings": {
+        "license": { "type": "GPL-3.0", "url": null },
+        "links": {
+          "top": [],
+          "sidebar": [
+            { "id": 1, "type": "source", "title": "Source", "urls": ["https://github.com/EssentialsX/Essentials"] }
+          ]
+        }
+      },
+      "promotedVersions": [
+        {
+          "version": "2.20.1",
+          "platforms": ["PAPER"],
+          "platformDependencies": { "PAPER": ["1.20.1", "1.20.4"] }
+        }
+      ]
+    },
+    {
+      "id": 5678,
+      "name": "Vault",
+      "namespace": { "owner": "MilkBowl", "slug": "Vault" },
+      "description": "Abstraction library for economy, permission, and chat plugins.",
+      "category": "misc",
+      "createdAt": "2019-01-01T00:00:00Z",
+      "lastUpdated": "2026-05-01T00:00:00Z",
+      "visibility": "public",
+      "settings": {
+        "license": { "type": "LGPL-3.0", "url": null },
+        "links": { "top": [], "sidebar": [] }
+      },
+      "promotedVersions": [
+        {
+          "version": "1.7.3",
+          "platforms": ["PAPER", "SPIGOT"],
+          "platformDependencies": { "PAPER": ["1.19.4", "1.20.1"], "SPIGOT": ["1.19.4", "1.20.1"] }
+        }
+      ]
+    }
+  ]
+}

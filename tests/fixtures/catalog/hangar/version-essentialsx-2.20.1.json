@@ -1,0 +1,23 @@
+{
+  "id": 111,
+  "name": "2.20.1",
+  "createdAt": "2026-06-01T12:00:00Z",
+  "description": "Bug fixes and performance improvements.",
+  "dependencies": {
+    "PAPER": [
+      { "name": "Vault", "required": false }
+    ]
+  },
+  "platformDependencies": { "PAPER": ["1.20.1", "1.20.4"] },
+  "downloads": {
+    "PAPER": {
+      "fileInfo": {
+        "name": "EssentialsX-2.20.1.jar",
+        "sizeBytes": 654321,
+        "sha256Hash": "3771462a3440e7e100ac5b9ff25e05f886c730e4b1e12a30c267f723f59cb5ba"
+      },
+      "downloadUrl": "https://hangar.papermc.io/api/v1/projects/EssentialsX/EssentialsX/versions/2.20.1/PAPER/download"
+    }
+  },
+  "visibility": "public"
+}

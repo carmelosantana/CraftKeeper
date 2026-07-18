@@ -1,0 +1,31 @@
+[
+  {
+    "id": "ver001",
+    "project_id": "AANobbMI",
+    "author_id": "user001",
+    "featured": true,
+    "name": "Sodium Essentials 0.5.11",
+    "version_number": "0.5.11",
+    "changelog": "Bug fixes.",
+    "dependencies": [
+      { "version_id": null, "project_id": "P7dR8mSH", "file_name": null, "dependency_type": "optional" }
+    ],
+    "game_versions": ["1.20.1", "1.20.4"],
+    "version_type": "release",
+    "loaders": ["paper", "spigot"],
+    "date_published": "2026-06-10T12:00:00Z",
+    "downloads": 5000,
+    "files": [
+      {
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha256": "76a10c0f7c0d1dcbe7309cd544e07cceeaf7a759332d4b3920be32e06044ccfe"
+        },
+        "url": "https://cdn.modrinth.com/data/AANobbMI/versions/0.5.11/sodium-essentials-0.5.11.jar",
+        "filename": "sodium-essentials-0.5.11.jar",
+        "primary": true,
+        "size": 123456
+      }
+    ]
+  }
+]

@@ -1,0 +1,55 @@
+{
+  "catalogVersion": "1.0.0",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "plugins": [
+    {
+      "slug": "essentialsx",
+      "name": "EssentialsX",
+      "description": "Provides essential commands and features for Minecraft servers.",
+      "projectUrl": "https://essentialsx.net",
+      "license": "GPL-3.0",
+      "sourceRepository": "https://github.com/EssentialsX/Essentials",
+      "releases": [
+        {
+          "version": "2.20.1",
+          "minecraftVersions": ["1.20.1", "1.20.4"],
+          "platforms": ["paper", "spigot"],
+          "dependencies": [
+            { "name": "Vault", "required": false, "minVersion": "1.7" }
+          ],
+          "downloadUrl": "https://example.test/EssentialsX-2.20.1.jar",
+          "sha256": "3771462a3440e7e100ac5b9ff25e05f886c730e4b1e12a30c267f723f59cb5ba",
+          "releasedAt": "2026-06-01T12:00:00Z",
+          "withdrawn": false
+        },
+        {
+          "version": "2.19.0",
+          "minecraftVersions": ["1.19.4"],
+          "platforms": ["paper", "spigot"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/EssentialsX-2.19.0.jar",
+          "sha256": "9868b0426e3aea240b70dc04b443466b0f9dbd507ae26ee994bc1ceb6bc239f3",
+          "releasedAt": "2026-01-01T00:00:00Z",
+          "withdrawn": true
+        },
+        {
+          "version": "2.18.0",
+          "minecraftVersions": ["1.19.2"],
+          "platforms": ["paper"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/EssentialsX-2.18.0.jar",
+          "sha256": "this-is-not-a-valid-sha256-hash",
+          "releasedAt": "2025-11-01T00:00:00Z"
+        },
+        {
+          "minecraftVersions": ["1.19.2"],
+          "platforms": ["paper"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/EssentialsX-unknown.jar",
+          "sha256": "76a10c0f7c0d1dcbe7309cd544e07cceeaf7a759332d4b3920be32e06044ccfe",
+          "releasedAt": "2025-10-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

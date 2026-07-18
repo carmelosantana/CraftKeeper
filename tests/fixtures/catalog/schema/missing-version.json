@@ -1,0 +1,23 @@
+{
+  "catalogVersion": "1.0.0",
+  "plugins": [
+    {
+      "slug": "essentialsx",
+      "name": "EssentialsX",
+      "description": "Provides essential commands and features for Minecraft servers.",
+      "projectUrl": "https://essentialsx.net",
+      "license": "GPL-3.0",
+      "sourceRepository": "https://github.com/EssentialsX/Essentials",
+      "releases": [
+        {
+          "minecraftVersions": ["1.20.1"],
+          "platforms": ["paper"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/EssentialsX-2.20.1.jar",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "releasedAt": "2026-06-01T12:00:00Z"
+        }
+      ]
+    }
+  ]
+}

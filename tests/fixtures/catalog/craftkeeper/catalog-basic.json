@@ -1,0 +1,46 @@
+{
+  "catalogVersion": "1.0.0",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "plugins": [
+    {
+      "slug": "essentialsx",
+      "name": "EssentialsX",
+      "description": "Provides essential commands and features for Minecraft servers.",
+      "projectUrl": "https://essentialsx.net",
+      "license": "GPL-3.0",
+      "sourceRepository": "https://github.com/EssentialsX/Essentials",
+      "releases": [
+        {
+          "version": "2.20.1",
+          "minecraftVersions": ["1.20.1", "1.20.4"],
+          "platforms": ["paper", "spigot"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/EssentialsX-2.20.1.jar",
+          "sha256": "3771462a3440e7e100ac5b9ff25e05f886c730e4b1e12a30c267f723f59cb5ba",
+          "releasedAt": "2026-06-01T12:00:00Z",
+          "withdrawn": false
+        }
+      ]
+    },
+    {
+      "slug": "vault",
+      "name": "Vault",
+      "description": "Abstraction library for economy, permission, and chat plugins.",
+      "projectUrl": "https://github.com/MilkBowl/Vault",
+      "license": "LGPL-3.0",
+      "sourceRepository": "https://github.com/MilkBowl/Vault",
+      "releases": [
+        {
+          "version": "1.7.3",
+          "minecraftVersions": ["1.19.4", "1.20.1"],
+          "platforms": ["paper", "spigot"],
+          "dependencies": [],
+          "downloadUrl": "https://example.test/Vault-1.7.3.jar",
+          "sha256": "9868b0426e3aea240b70dc04b443466b0f9dbd507ae26ee994bc1ceb6bc239f3",
+          "releasedAt": "2026-05-01T00:00:00Z",
+          "withdrawn": false
+        }
+      ]
+    }
+  ]
+}

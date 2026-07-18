@@ -13,6 +13,7 @@
         "php": "^8.4",
         "carmelosantana/php-agents": "^0.15",
         "inertiajs/inertia-laravel": "^3.0",
+        "justinrainbow/json-schema": "^6.10",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37",
         "laravel/framework": "^13.17",

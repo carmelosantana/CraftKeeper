@@ -18,11 +18,12 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
-// Unit and Integration tests get the full Laravel TestCase (so config(),
-// app(), etc. work) but skip RefreshDatabase — none of these touch the
-// database, only the filesystem.
+// Unit, Integration, and Contract tests get the full Laravel TestCase (so
+// config(), app(), etc. work) but skip RefreshDatabase — none of these
+// touch the database. Contract tests validate fixtures against
+// resources/catalog/plugin-catalog.schema.json purely in memory.
 pest()->extend(TestCase::class)
-    ->in('Unit', 'Integration');
+    ->in('Unit', 'Integration', 'Contract');
 
 /*
 |--------------------------------------------------------------------------

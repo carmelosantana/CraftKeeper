@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Catalog\Sources\CraftKeeperCatalogSource;
+use App\Catalog\Sources\HangarSource;
+use App\Catalog\Sources\ModrinthSource;
+use App\Catalog\UnifiedCatalogService;
 use App\Console\MinecraftRconClient;
 use App\Console\RconClient;
 use App\Console\StreamRconTransport;
@@ -67,6 +71,23 @@ class AppServiceProvider extends ServiceProvider
             (int) (Setting::get('rcon.port') ?? 25575),
             Secret::get('rcon.password') ?? '',
         ));
+
+        // Every App\Catalog\PluginSource adapter, tagged so
+        // UnifiedCatalogService can be given all of them without
+        // knowing the concrete list — the same tag-then-inject
+        // convention as 'operation.handler' above. Order here is NOT
+        // significant to search results (App\Catalog\UnifiedCatalogService
+        // sorts deterministically on its own criteria — see its
+        // docblock — never on source registration order).
+        $this->app->tag([
+            CraftKeeperCatalogSource::class,
+            HangarSource::class,
+            ModrinthSource::class,
+        ], 'catalog.source');
+
+        $this->app->when(UnifiedCatalogService::class)
+            ->needs('$sources')
+            ->give(fn ($app) => $app->tagged('catalog.source'));
     }
 
     /**

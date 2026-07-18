@@ -1,0 +1,33 @@
+{
+  "catalogVersion": "1.0.0",
+  "generatedAt": "2026-07-01T00:00:00Z",
+  "plugins": [
+    {
+      "slug": "essentialsx",
+      "name": "EssentialsX",
+      "description": "Provides essential commands and features for Minecraft servers.",
+      "projectUrl": "https://essentialsx.net",
+      "license": "GPL-3.0",
+      "sourceRepository": "https://github.com/EssentialsX/Essentials",
+      "releases": [
+        {
+          "version": "2.20.1",
+          "minecraftVersions": ["1.20.1", "1.20.4"],
+          "platforms": ["paper", "spigot"],
+          "dependencies": [
+            { "name": "Vault", "required": false, "minVersion": "1.7" }
+          ],
+          "downloadUrl": "https://example.test/EssentialsX-2.20.1.jar",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "releasedAt": "2026-06-01T12:00:00Z",
+          "withdrawn": false,
+          "signature": {
+            "algorithm": "ed25519",
+            "signature": "MEUCIQDx...base64...signature...==",
+            "keyUrl": "https://craftkeeper.dev/keys/catalog-signing.pub"
+          }
+        }
+      ]
+    }
+  ]
+}

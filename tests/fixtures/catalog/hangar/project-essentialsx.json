@@ -1,0 +1,19 @@
+{
+  "id": 1234,
+  "name": "EssentialsX",
+  "namespace": { "owner": "EssentialsX", "slug": "EssentialsX" },
+  "description": "Provides essential commands and features for Minecraft servers.",
+  "category": "admin_tools",
+  "createdAt": "2021-01-01T00:00:00Z",
+  "lastUpdated": "2026-06-01T00:00:00Z",
+  "visibility": "public",
+  "settings": {
+    "license": { "type": "GPL-3.0", "url": null },
+    "links": {
+      "top": [],
+      "sidebar": [
+        { "id": 1, "type": "source", "title": "Source", "urls": ["https://github.com/EssentialsX/Essentials"] }
+      ]
+    }
+  }
+}

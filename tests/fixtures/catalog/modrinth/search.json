@@ -1,0 +1,25 @@
+{
+  "hits": [
+    {
+      "project_id": "AANobbMI",
+      "slug": "sodium-essentials",
+      "title": "Sodium Essentials",
+      "description": "A lightweight essentials-style plugin for Paper/Spigot servers.",
+      "categories": ["utility", "economy", "paper", "spigot"],
+      "client_side": "unsupported",
+      "server_side": "required",
+      "project_type": "plugin",
+      "downloads": 250000,
+      "icon_url": "https://cdn.modrinth.com/data/AANobbMI/icon.png",
+      "color": 8781094,
+      "latest_version": "0.5.11",
+      "license": "MIT",
+      "date_created": "2022-03-01T00:00:00Z",
+      "date_modified": "2026-06-10T00:00:00Z",
+      "versions": ["1.20.1", "1.20.4"]
+    }
+  ],
+  "offset": 0,
+  "limit": 10,
+  "total_hits": 1
+}
