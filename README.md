@@ -68,9 +68,12 @@ ghcr.io/carmelosantana/craftkeeper:v1.0
 ghcr.io/carmelosantana/craftkeeper:v1.0.0
 ```
 
-Every published manifest is signed with keyless Sigstore/Cosign and
-carries SLSA build provenance plus SPDX and CycloneDX SBOM attestations.
-Verify before deploying:
+Published release images are signed with keyless Sigstore/Cosign and
+carry SLSA build provenance plus SPDX and CycloneDX SBOM attestations —
+`.github/workflows/image.yml` builds, gates (smoke test + vulnerability
+scan), signs, and attests every image on a `v*` tag push. No release has
+shipped yet as of this writing; the first tagged release will be the
+first to carry these attestations. Verify before deploying:
 
 ```bash
 cosign verify --certificate-identity-regexp 'https://github.com/carmelosantana/craftkeeper/.*' \

@@ -54,8 +54,17 @@ jobs:
           # CHANGELOG.md sections are headed "## [X.Y.Z] - YYYY-MM-DD".
           # Extract the body between this version's heading and the next
           # "## " heading (or end of file).
+          #
+          # NOT `$0 ~ ver` — that treats `ver` as a REGEX, and
+          # `ver="## [1.0.0]"` makes `[1.0.0]` a bracket expression
+          # matching exactly one character from the set {1, ., 0}, not a
+          # literal "[1.0.0]" substring. The real heading is "## [1.0.0]
+          # - 2026-07-18", which never matches that regex, so this awk
+          # could never find any version's section — every release would
+          # silently fall through to the generic fallback note below.
+          # `index($0, ver) == 1` does a literal prefix match instead.
           awk -v ver="## [${VERSION}]" '
-            $0 ~ ver { found=1; next }
+            index($0, ver) == 1 { found=1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md

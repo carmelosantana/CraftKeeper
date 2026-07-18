@@ -2,8 +2,9 @@
 
 ## Upgrading
 
-CraftKeeper images are published to GHCR on every signed `v*` tag as
-four tags pointing at the same multi-architecture manifest digest:
+CraftKeeper images are published to GHCR on every signed, **final**
+(non-prerelease) `v*` tag as four tags pointing at the same
+multi-architecture manifest digest:
 
 ```
 ghcr.io/carmelosantana/craftkeeper:v1.2.3   # exact version — immutable in practice (a given X.Y.Z is only ever published once)
@@ -15,10 +16,15 @@ ghcr.io/carmelosantana/craftkeeper:latest   # latest final (non-prerelease) rele
 `:v1.2.3`-style tags are the ones to reference in production if you want
 explicit control over exactly when you move to a new version;
 `:v1`/`:latest` are conveniences that track forward automatically as new
-compatible releases ship. `:latest` is **never** published for a
-prerelease tag (e.g. `v1.3.0-rc.1`) — `.github/workflows/image.yml`'s tag
-computation step refuses to include it in that case, so `:latest` always
-points at the newest stable release, never a release candidate.
+compatible releases ship. **A prerelease tag** (e.g. `v1.3.0-rc.1`)
+**publishes only its own exact tag** — `:v1`, `:v1.2`, and `:latest` are
+all withheld, so a deployment pinned to `:v1` or `:v1.2` is never
+silently moved onto a release candidate. `.github/workflows/image.yml`'s
+tag computation step also gates the moving tags (`:v1`, `:v1.2`,
+`:latest`) on the image passing its smoke test and vulnerability scan
+before they are ever pointed at a new digest — the exact per-version tag
+is published as soon as the build succeeds, but `:v1`/`:v1.2`/`:latest`
+only move afterward.
 
 To upgrade:
 
@@ -90,11 +96,14 @@ the older image digest — not just changing the image reference.
 
 ## Verifying what you're running
 
-Every published manifest is signed with keyless Sigstore/Cosign and
-carries SPDX + CycloneDX SBOM attestations and SLSA build provenance.
-Before rolling forward or back, you can verify a specific tag or digest
-actually came from this project's own CI (not a re-tagged or tampered
-image):
+Published release images are signed with keyless Sigstore/Cosign and
+carry SPDX + CycloneDX SBOM attestations and SLSA build provenance —
+`.github/workflows/image.yml` builds, gates (smoke test + vulnerability
+scan), signs, and attests every image on a `v*` tag push. No release has
+shipped yet as of this writing; the first tagged release will be the
+first to carry these attestations. Before rolling forward or back, you
+can verify a specific tag or digest actually came from this project's own
+CI (not a re-tagged or tampered image):
 
 ```bash
 cosign verify --certificate-identity-regexp 'https://github.com/carmelosantana/craftkeeper/.*' \

@@ -71,7 +71,7 @@ Laravel 13 + Inertia 3 / React 19 application with SQLite persistence.
   blocking any request path.
 - **Design system and accessibility.** A shared `AppShell`, responsive
   down to 390px (tables become cards, split panes become bottom sheets
-  below 768px), five themes (dark default; light, terracotta, emerald,
+  below 768px), six themes (dark default; light, terracotta, emerald,
   slate, bronze), WCAG 2.2 AA contrast verified by computed-style
   end-to-end tests, keyboard traversal, and reduced-motion support.
 - **CI/CD.** Separate PHP/frontend/browser/integration/container CI

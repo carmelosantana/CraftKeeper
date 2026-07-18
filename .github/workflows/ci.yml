@@ -347,10 +347,19 @@ jobs:
           echo "$hc"
           [ "$hc" != "null" ]
 
+      # NOT `! grep -q ... ; ! grep -riq ...` — under `bash -e`, a command
+      # whose status is inverted with `!` is exempt from `set -e`. If the
+      # first `!`-prefixed grep found a match (bad), execution would
+      # continue to the second line regardless, and the step's exit
+      # status would be the SECOND grep's alone — silently never gating
+      # on the first file. Use an un-inverted `if grep ...; then exit 1;
+      # fi` instead so both files genuinely fail the step.
       - name: Verify the image never mounts/requires the Docker socket
         run: |
-          ! grep -q "docker.sock" compose.example.yml
-          ! grep -riq "docker.sock" Dockerfile
+          if grep -riq "docker.sock" compose.example.yml Dockerfile; then
+            echo "::error::Docker socket reference found"
+            exit 1
+          fi
 
   zizmor:
     name: Static workflow audit (zizmor)

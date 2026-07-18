@@ -72,8 +72,8 @@ Run these before opening a pull request — they are the same commands
 composer test     # Pest test suite, PHPStan (level 7), Pint (check-only)
 npm run test      # Vitest unit tests
 npm run typecheck # TypeScript type checking
-npm run lint:check
-npm run format:check
+npm run lint:check   # informational in CI (continue-on-error) — pre-existing debt, not yet a hard gate
+npm run format:check # informational in CI (continue-on-error) — pre-existing debt, not yet a hard gate
 npm run build     # Vite production build
 npm run e2e       # Playwright end-to-end suite
 ```
@@ -111,8 +111,13 @@ everything user-visible).
 ## Workflow and CI/CD changes
 
 Any change under `.github/` requires review from a CODEOWNERS-listed
-reviewer (see `.github/CODEOWNERS`) — this is enforced by branch
-protection, not just convention. Third-party GitHub Actions must be
+reviewer (see `.github/CODEOWNERS`) — treat this as a hard project
+convention. It becomes an actual GitHub-enforced gate (rather than
+convention alone) once *Require review from Code Owners* is enabled for
+`main` in this repository's branch protection settings; as of this
+writing no branch-protection rule exists in this repository yet (see
+`.github/CODEOWNERS`'s own header comment), so CODEOWNERS alone does not
+gate anything server-side. Third-party GitHub Actions must be
 pinned to a full commit SHA (not a mutable tag), `id-token: write` must
 never appear outside the image-signing job, and `pull_request_target`
 must never check out and run code from a fork. Run

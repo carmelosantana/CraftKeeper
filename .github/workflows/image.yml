@@ -4,14 +4,25 @@ name: Publish Image
 # CraftKeeper container image to GHCR — triggered ONLY by pushing a
 # `v*` tag (never on every push/PR — see ci.yml for that).
 #
-# Job graph: build-and-push (the only job that pushes pixels) fans out to
-# three independent verification/attestation jobs that all target the
-# digest it produced, never a floating tag (a tag can move; a digest
-# cannot):
-#   build-and-push --> smoke-test   (does the pushed image actually boot?)
-#                  \-> scan         (Trivy vulnerability scan, SARIF)
+# Job graph: build-and-push pushes ONLY the immutable per-version tag
+# (`:vX.Y.Z[-prerelease]`) and produces a digest. Three jobs fan out from
+# that digest, never a floating tag (a tag can move; a digest cannot):
+#   build-and-push --> smoke-test      (does the pushed image actually boot?)
+#                  \-> scan            (Trivy vulnerability scan, SARIF —
+#                  |                    `exit-code: 1` on CRITICAL/HIGH makes
+#                  |                    this job actually FAIL, not just
+#                  |                    report, on a real finding)
 #                  \-> sign-and-attest (cosign keyless sign + SPDX/CycloneDX
 #                                       SBOM generation and attestation)
+#
+# A fourth job, publish-moving-tags, has `needs: [build-and-push,
+# smoke-test, scan]` — only once BOTH the boot check and the vulnerability
+# gate pass does it point `:vX`, `:vX.Y`, and (final releases only)
+# `:latest` at the already-pushed, already-verified digest via `docker
+# buildx imagetools create` (no rebuild — same bytes, new pointers). A
+# prerelease tag publishes ONLY its exact `:vX.Y.Z-rc.N`; `:latest`,
+# `:vX`, and `:vX.Y` are all withheld for it, so a pinned `:v1`/`:v1.2`
+# operator is never silently moved onto a release candidate.
 #
 # Supply-chain posture:
 #   - Every third-party action pinned to a full commit SHA (see ci.yml's
@@ -22,9 +33,12 @@ name: Publish Image
 #     nowhere else in this file or ci.yml.
 #   - No `pull_request_target` anywhere; this workflow doesn't trigger on
 #     pull_request at all.
-#   - `latest` is never published for a prerelease tag (see "Compute
-#     tags" below) — implemented as an explicit, auditable regex check on
-#     the pushed tag name, not left to an action's implicit behavior.
+#   - `latest` is never published for a prerelease tag, and no moving tag
+#     (`:latest`, `:vX`, `:vX.Y`) is published for ANY tag until
+#     smoke-test + scan both succeed (see "Compute image tags" and
+#     "publish-moving-tags" below) — implemented as explicit, auditable
+#     checks and job dependencies, not left to an action's implicit
+#     behavior or to publish-then-verify ordering.
 
 on:
   push:
@@ -46,8 +60,9 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
-      image_ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+      image_ref: ${{ steps.ref.outputs.image_ref }}
       is_prerelease: ${{ steps.tags.outputs.is_prerelease }}
+      moving_tags: ${{ steps.tags.outputs.moving_tags }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -57,8 +72,15 @@ jobs:
       # Explicit, auditable tag computation — deliberately NOT delegated
       # to an action's implicit semver/prerelease heuristic. A v*.*.*-<...>
       # tag (rc, beta, alpha — any hyphenated pre-release suffix per
-      # SemVer 2.0.0 §9) computes v<major>.<minor>.<patch> ONLY and
-      # explicitly withholds `:latest`.
+      # SemVer 2.0.0 §9) computes v<major>.<minor>.<patch> ONLY.
+      #
+      # Only the immutable, never-reused `full_tag` is pushed by THIS job.
+      # `:vX`, `:vX.Y`, and `:latest` are "moving" tags — they are computed
+      # here as `moving_tags` but only ever applied by the publish-moving-
+      # tags job below, and only once smoke-test + scan both pass. A
+      # prerelease computes an EMPTY `moving_tags` — it publishes only its
+      # exact `full_tag`, so a pinned `:v1`/`:v1.2` operator can never be
+      # silently moved onto a release candidate.
       - name: Compute image tags and prerelease guard
         id: tags
         run: |
@@ -75,20 +97,20 @@ jobs:
           PATCH="${BASH_REMATCH[3]}"
           PRERELEASE="${BASH_REMATCH[4]:-}"
 
-          TAGS="${IMAGE}:v${MAJOR}.${MINOR}.${PATCH}"
-          TAGS="${TAGS},${IMAGE}:v${MAJOR}.${MINOR}"
-          TAGS="${TAGS},${IMAGE}:v${MAJOR}"
+          FULL_TAG="${IMAGE}:v${MAJOR}.${MINOR}.${PATCH}"
 
           if [ -z "$PRERELEASE" ]; then
-            TAGS="${TAGS},${IMAGE}:latest"
-            echo "::notice::'$REF' is a final release — publishing :latest."
+            MOVING_TAGS="${IMAGE}:v${MAJOR}.${MINOR},${IMAGE}:v${MAJOR},${IMAGE}:latest"
+            echo "::notice::'$REF' is a final release — :v${MAJOR}, :v${MAJOR}.${MINOR}, and :latest will be published once smoke-test + scan pass."
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::'$REF' is a PRERELEASE ('$PRERELEASE') — :latest will NOT be published."
+            MOVING_TAGS=""
+            echo "::notice::'$REF' is a PRERELEASE ('$PRERELEASE') — only '${FULL_TAG}' will be published. :latest, :v${MAJOR}, and :v${MAJOR}.${MINOR} are all withheld."
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "moving_tags=${MOVING_TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU (arm64 emulation)
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -112,7 +134,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.tags.outputs.full_tag }}
           provenance: true
           sbom: true
           labels: |
@@ -121,14 +143,31 @@ jobs:
             org.opencontainers.image.version=${{ github.ref_name }}
             org.opencontainers.image.licenses=AGPL-3.0-or-later
 
+      # `jobs.<id>.outputs` does NOT have the `env` context available
+      # (only github, needs, strategy, matrix, secrets, steps, inputs,
+      # vars) — a bare `${{ env.IMAGE }}` in the `outputs:` block above
+      # would silently render as empty, breaking every downstream
+      # consumer (smoke-test, scan, sign-and-attest, publish-moving-tags).
+      # Compute the full reference here, in a step, where `env`/shell
+      # variables ARE available, and expose it as a step output instead.
+      - name: Compute digest-pinned image reference
+        id: ref
+        run: echo "image_ref=${IMAGE}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-          PUBLISHED_TAGS: ${{ steps.tags.outputs.tags }}
+          FULL_TAG: ${{ steps.tags.outputs.full_tag }}
+          MOVING_TAGS: ${{ steps.tags.outputs.moving_tags }}
         run: |
           echo "### Published ${IMAGE}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Tags: ${PUBLISHED_TAGS}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Immutable tag: ${FULL_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${MOVING_TAGS}" ]; then
+            echo "Moving tags (published only after smoke-test + scan pass): ${MOVING_TAGS}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Prerelease: no moving tags (:latest, :vX, :vX.Y) published for this tag." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   smoke-test:
     name: Container smoke test
@@ -196,6 +235,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `exit-code: '1'` is load-bearing, not cosmetic: without it,
+      # trivy-action always exits 0 regardless of findings, so this job
+      # would report "success" to `needs:` even with a CRITICAL CVE
+      # present — silently defeating the publish-moving-tags gate below.
+      # With it, a CRITICAL/HIGH finding fails this job, which in turn
+      # blocks publish-moving-tags from ever moving :latest/:vX/:vX.Y.
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -204,6 +249,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           scanners: vuln
+          exit-code: '1'
 
       - name: Upload SARIF to Security tab
         if: always()
@@ -219,6 +265,48 @@ jobs:
           path: trivy-results.sarif
           if-no-files-found: ignore
           retention-days: 30
+
+  publish-moving-tags:
+    name: Publish moving tags (:vX, :vX.Y, :latest)
+    # This is the Important-4 fix: previously, moving-tag publication
+    # happened as part of the same push as the build, BEFORE smoke-test
+    # and scan ran at all — a CRITICAL CVE (or a boot failure) would
+    # still leave `:latest` pointed at the bad image, with a green
+    # pipeline overall (Trivy had no exit-code). Now, `:latest`/`:vX`/
+    # `:vX.Y` are only ever pointed at the digest AFTER both gates pass.
+    needs: [build-and-push, smoke-test, scan]
+    if: needs.build-and-push.outputs.moving_tags != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
+      MOVING_TAGS: ${{ needs.build-and-push.outputs.moving_tags }}
+    steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Re-tags the manifest already pushed by build-and-push and already
+      # verified by smoke-test + scan — no rebuild, no new bytes pushed,
+      # just additional pointers at the exact digest those two jobs
+      # checked.
+      - name: Point each moving tag at the verified digest
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra TAGS <<< "${MOVING_TAGS}"
+          ARGS=()
+          for t in "${TAGS[@]}"; do
+            ARGS+=(--tag "$t")
+          done
+          docker buildx imagetools create "${ARGS[@]}" "${IMAGE_REF}"
 
   sign-and-attest:
     name: Sign + SBOM (SPDX, CycloneDX) + provenance
