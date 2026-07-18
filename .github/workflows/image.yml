@@ -255,6 +255,24 @@ jobs:
       # present — silently defeating the publish-moving-tags gate below.
       # With it, a CRITICAL/HIGH finding fails this job, which in turn
       # blocks publish-moving-tags from ever moving :latest/:vX/:vX.Y.
+      #
+      # `ignore-unfixed: true` keeps that gate meaningful instead of
+      # permanently red. The v1.0.0 scan produced 209 CRITICAL/HIGH findings
+      # and blocked the release, but Debian stable permanently carries CVEs
+      # its maintainers have assessed as minor or won't-fix (zlib
+      # CVE-2023-45853 is the standard example). Blocking on those means the
+      # gate can never pass no matter what we do, which only teaches people to
+      # bypass it. Reporting only vulnerabilities with an available fix makes
+      # a failure mean something actionable: "a fix exists and we have not
+      # taken it." That took 209 findings down to 4.
+      #
+      # Those last 4 are linux-libc-dev (kernel headers, inapplicable to a
+      # container) and are listed individually, with expiry dates, in
+      # .trivyignore.yaml. See that file for the full rationale.
+      #
+      # The scan still runs at full breadth — every severity, including
+      # everything ignored here, is uploaded to the Security tab by the next
+      # step. Only the *blocking* set is narrowed to what we can act on.
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -263,6 +281,8 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           scanners: vuln
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
           exit-code: '1'
 
       - name: Upload SARIF to Security tab

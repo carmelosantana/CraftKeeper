@@ -1,6 +1,11 @@
 services:
   craftkeeper:
-    image: ghcr.io/carmelosantana/craftkeeper:latest
+    # Pinned to an explicit release rather than :latest. Moving tags are
+    # published only after the release pipeline's smoke test, vulnerability
+    # scan, and Sigstore signing all pass, so :latest is intentionally absent
+    # until a release clears every gate. Pinning also means `docker compose
+    # pull` never silently moves you to a new major version.
+    image: ghcr.io/carmelosantana/craftkeeper:v1.0.0
     restart: unless-stopped
     ports:
       - "8080:8080"

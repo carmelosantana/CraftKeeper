@@ -29,7 +29,9 @@ services:
     # reaches it over this compose network, so the port stays private.
 
   craftkeeper:
-    image: ghcr.io/carmelosantana/craftkeeper:latest
+    # Pinned to an explicit release; see compose.example.yml for why :latest
+    # is intentionally not used.
+    image: ghcr.io/carmelosantana/craftkeeper:v1.0.0
     container_name: craftkeeper
     restart: unless-stopped
     depends_on:

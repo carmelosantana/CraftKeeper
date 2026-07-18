@@ -1,0 +1,59 @@
+# Trivy ignore list for the release image scan (.github/workflows/image.yml).
+#
+# Scope: this file exists ONLY to exclude Linux kernel CVEs attributed to the
+# `linux-libc-dev` package. That package ships kernel *headers* for userspace
+# compilation and is pulled in by libc6-dev, which comes from the upstream
+# php:8.4-fpm-bookworm base image itself — not from anything this Dockerfile
+# installs. Verified: `php:8.4-fpm-bookworm` contains gcc, libc6-dev, and
+# linux-libc-dev out of the box, so these cannot be removed without diverging
+# from the official PHP image.
+#
+# Why they are not applicable: a container does not run its own kernel. It
+# shares the host's. A kernel CVE is a real finding for whoever operates the
+# host and is meaningless for this image, which merely carries the headers.
+#
+# Why this list is short: the workflow sets `ignore-unfixed: true`, so only
+# vulnerabilities with an available distro fix are considered at all. On the
+# v1.0.0 image that took 209 CRITICAL/HIGH findings down to 4 — all of them
+# linux-libc-dev, listed below. Everything else was either unfixed upstream
+# (Debian stable permanently carries some, e.g. zlib CVE-2023-45853) or not
+# CRITICAL/HIGH.
+#
+# The gate remains blocking. A CRITICAL/HIGH vulnerability in any real
+# dependency, with a fix available, still fails the job and prevents
+# publish-moving-tags from moving :latest / :vX / :vX.Y.
+#
+# Full scan results, at every severity and including everything ignored here,
+# are still uploaded to the repository's Security tab on every release.
+#
+# MAINTENANCE: each entry expires. On expiry the scan fails again and the
+# entry must be re-justified rather than silently inherited — these should
+# disappear on their own as the base image picks up a newer linux-libc-dev.
+# Re-check with:
+#   trivy image --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+#     ghcr.io/carmelosantana/craftkeeper:<tag>
+
+vulnerabilities:
+  - id: CVE-2026-53138
+    statement: >-
+      linux-libc-dev (kernel headers) 6.1.176-1, fixed in 6.1.177-1. Kernel
+      CVE; not applicable to a container that uses the host kernel.
+    expiredAt: 2026-10-18
+
+  - id: CVE-2026-53157
+    statement: >-
+      linux-libc-dev (kernel headers) 6.1.176-1, fixed in 6.1.177-1. Kernel
+      CVE; not applicable to a container that uses the host kernel.
+    expiredAt: 2026-10-18
+
+  - id: CVE-2026-53359
+    statement: >-
+      linux-libc-dev (kernel headers) 6.1.176-1, fixed in 6.1.177-1. Kernel
+      CVE; not applicable to a container that uses the host kernel.
+    expiredAt: 2026-10-18
+
+  - id: CVE-2026-53362
+    statement: >-
+      linux-libc-dev (kernel headers) 6.1.176-1, fixed in 6.1.177-1. Kernel
+      CVE; not applicable to a container that uses the host kernel.
+    expiredAt: 2026-10-18

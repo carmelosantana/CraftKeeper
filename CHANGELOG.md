@@ -11,6 +11,76 @@ heading format exact.
 
 Nothing yet.
 
+## [1.0.1] - 2026-07-18
+
+Repairs to the container image and the release pipeline, both of which ran
+end-to-end against a real tag for the first time in 1.0.0. No application
+behaviour changes.
+
+The 1.0.0 image is functional, but 1.0.0 published no moving tags: its
+release pipeline's smoke test, vulnerability scan, and signing job all
+failed, and `publish-moving-tags` is deliberately gated behind them, so
+`:latest`, `:v1`, and `:v1.0` were never created. This release restores them.
+
+### Fixed
+
+- **The application could not boot without a `.env` file.**
+  `config/broadcasting.php` fell back to the `reverb` driver while
+  `routes/channels.php` calls `Broadcast::channel()` during boot, so with no
+  `REVERB_*` credentials the driver constructed Pusher with a null auth key
+  and threw before the framework finished starting. This was not a loss of
+  streaming — the application failed to start at all, and it took down
+  `composer install` with it (its post-autoload-dump hook runs
+  `artisan package:discover`). The fallback is now `log`; realtime streaming
+  is opt-in via `BROADCAST_CONNECTION=reverb` plus credentials.
+
+- **The container returned 503 on every request unless `DATA_ROOT` or
+  `DB_DATABASE` was set.** `docker/entrypoint.sh` assigned both without
+  `export`, so PHP never saw them: the entrypoint prepared and migrated
+  `/data/database.sqlite` while the application read
+  `storage/craftkeeper/database.sqlite`. Both are now exported, making the
+  entrypoint's defaults authoritative.
+
+- **SBOM generation failed the signing job.** `anchore/sbom-action` attempted
+  to attach SBOMs to the GitHub Release, which requires `contents: write` —
+  a permission the signing job intentionally does not hold. SBOMs are still
+  published as workflow artifacts and attested to the image with `cosign`.
+
+- **The vulnerability gate could never pass.** The scan blocked on 209
+  CRITICAL/HIGH findings, 128 of them from `linux-libc-dev` — Linux kernel
+  CVEs attributed to a headers package, for a kernel no container runs. It
+  now reports only vulnerabilities with an available fix, which is an
+  actionable signal; the few remaining kernel-header CVEs are listed with
+  expiry dates in `.trivyignore.yaml`. The gate remains blocking, and full
+  results at every severity are still uploaded to the Security tab.
+
+- CI's Frontend job typechecked against Wayfinder-generated modules it never
+  generated, and `image.yml` interpolated a build output directly into a shell
+  command (flagged by zizmor).
+
+### Changed
+
+- `compose.example.yml` and `compose.legendary.yml` pin an explicit image tag
+  instead of `:latest`, so a documented quickstart cannot break when moving
+  tags are withheld by a release gate.
+
+### Added
+
+- Documentation and a compose file for running CraftKeeper alongside
+  [Legendary Java Minecraft (Geyser + Floodgate)][legendary], the primary
+  supported deployment. Two mismatches between the images are documented with
+  verified fixes: a UID difference that makes every write fail while reads
+  succeed, and a `755` volume root that breaks atomic writes to
+  `server.properties` specifically.
+
+- CI now boots the built image twice — once with only the environment
+  `compose.example.yml` documents, and once with nothing but `APP_KEY` — and
+  requires `/up` to return 200. Both bugs above were invisible to the existing
+  suites because every test harness supplied configuration that real
+  invocations do not.
+
+[legendary]: https://github.com/TheRemote/Legendary-Java-Minecraft-Geyser-Floodgate
+
 ## [1.0.0] - 2026-07-18
 
 The first stable release of CraftKeeper: an AGPL-3.0-or-later,
