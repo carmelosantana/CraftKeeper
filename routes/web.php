@@ -6,6 +6,7 @@ use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Integrations\ApiTokenController;
+use App\Http\Controllers\Integrations\McpGrantController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OverviewController;
@@ -117,6 +118,17 @@ Route::middleware(['auth'])->group(function () {
         Route::get('api', [ApiTokenController::class, 'index'])->name('api');
         Route::post('api/tokens', [ApiTokenController::class, 'store'])->name('api.tokens.store');
         Route::delete('api/tokens/{token}', [ApiTokenController::class, 'destroy'])->name('api.tokens.destroy');
+
+        // Task 18: the MCP OAuth integration management page — connection
+        // URL, authorization state, exact capabilities/scopes, last used,
+        // expiry, revoke, and recent calls. Session-authenticated like
+        // every other route in this group; this page never itself calls
+        // /mcp/craftkeeper or any MCP tool/resource — it only manages the
+        // App\Models\McpGrant/Laravel\Passport\Client rows those calls are
+        // later authorized against.
+        Route::get('mcp', [McpGrantController::class, 'index'])->name('mcp');
+        Route::post('mcp/grants', [McpGrantController::class, 'store'])->name('mcp.grants.store');
+        Route::delete('mcp/grants/{grant}', [McpGrantController::class, 'destroy'])->name('mcp.grants.destroy');
     });
 
     Route::get('openapi.yaml', fn () => response()->file(base_path('openapi.yaml'), ['Content-Type' => 'text/yaml']))

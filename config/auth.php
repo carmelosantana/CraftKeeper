@@ -42,6 +42,17 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Task 18: MCP's Passport-authenticated bearer-token guard.
+        // Named distinctly from Sanctum's implicit 'sanctum' guard (Task
+        // 17's /api/v1) so the two token systems can never be confused —
+        // see routes/mcp.php's `auth:passport` middleware and
+        // App\Mcp\Support\McpGuard, which always resolves via this exact
+        // guard name, never the default guard.
+        'passport' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+        ],
     ],
 
     /*

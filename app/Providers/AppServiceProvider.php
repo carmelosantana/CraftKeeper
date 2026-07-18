@@ -13,6 +13,7 @@ use App\Filesystem\LocalMinecraftFilesystem;
 use App\Filesystem\MinecraftFilesystem;
 use App\Http\Controllers\E2eResetController;
 use App\Http\Controllers\PluginController;
+use App\Mcp\Support\McpScopeConsequences;
 use App\Models\Secret;
 use App\Models\Setting;
 use App\Operations\Handlers\ConfigApplyHandler;
@@ -28,8 +29,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -126,6 +129,20 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(PluginController::class)
             ->needs('$sources')
             ->give(fn ($app) => $app->tagged('catalog.source'));
+
+        // Deliberately called from register(), NOT boot(): Passport is an
+        // auto-discovered package provider, so
+        // Laravel\Passport\PassportServiceProvider::boot() —
+        // which reads Passport::$deviceCodeGrantEnabled to decide whether
+        // to register the GET /oauth/device route AT ALL (see vendor/
+        // laravel/passport/routes/web.php) — runs BEFORE this class's own
+        // boot() in Laravel's standard "package providers, then app
+        // providers" ordering. Flipping the flag from THIS class's boot()
+        // would be one phase too late: the route would already be
+        // registered against the old (true) default. register() runs for
+        // every provider before boot() runs for any provider, so setting
+        // it here is guaranteed to land before Passport reads it.
+        $this->configurePassportGrantTypes();
     }
 
     /**
@@ -135,6 +152,82 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureApiRateLimiting();
+        $this->configurePassportConsent();
+        $this->registerMcpRoutes();
+    }
+
+    /**
+     * Task 18's ambiguity resolution #2: authorization-code + PKCE only.
+     * `$passwordGrantEnabled`/`$implicitGrantEnabled` already default
+     * false in this Passport version — set explicitly anyway so the
+     * restriction is documented in code, not just relied upon as an
+     * upstream default that could silently change.
+     * `$deviceCodeGrantEnabled` DOES default true (and, unlike the other
+     * two, its route only registers when true — see vendor/laravel/
+     * passport/routes/web.php), so this MUST explicitly disable it; a
+     * device-code flow is a distinct, separate authorization flow that is
+     * not "authorization-code + PKCE". `client_credentials` is enabled
+     * server-wide by Passport itself unconditionally and cannot be turned
+     * off globally, but is closed in practice: every OAuth client this
+     * application ever creates (App\Http\Controllers\Integrations\
+     * McpGrantController::store(), via Laravel\Passport\ClientRepository::
+     * createAuthorizationCodeGrantClient()) is stored with
+     * grant_types = ['authorization_code', 'refresh_token'] ONLY, and no
+     * route in this application can ever create a client any other way
+     * (`$registersJsonApiRoutes` stays false, closing Passport's own
+     * client self-service API too) — see
+     * tests/Feature/Mcp/McpOAuthTest.php.
+     *
+     * See boot()'s configurePassportConsent() for the scope/consent-view
+     * half of this same ambiguity resolution — split across register()/
+     * boot() purely for the ordering reason above, not a logical one.
+     */
+    protected function configurePassportGrantTypes(): void
+    {
+        Passport::$passwordGrantEnabled = false;
+        Passport::$implicitGrantEnabled = false;
+        Passport::$deviceCodeGrantEnabled = false;
+        Passport::$registersJsonApiRoutes = false;
+    }
+
+    /**
+     * `Passport::tokensCan()` registers the SAME scope strings as
+     * App\Support\ApiScope (Task 17), each with a consent-screen
+     * description that names its concrete consequence
+     * (App\Mcp\Support\McpScopeConsequences) — rendered by
+     * resources/views/mcp/authorize.blade.php, which
+     * `authorizationView()` points Passport's stock `/oauth/authorize`
+     * consent screen at. Safe to run from boot() (unlike the grant-type
+     * flags above): nothing reads these until an actual `/oauth/authorize`
+     * request is handled, long after every provider has booted.
+     */
+    protected function configurePassportConsent(): void
+    {
+        Passport::tokensCan(McpScopeConsequences::map());
+
+        Passport::authorizationView('mcp.authorize');
+    }
+
+    /**
+     * Loads routes/mcp.php explicitly — see that file's own docblock for
+     * why this happens here (a dedicated, non-'web'/'api' route group)
+     * rather than via laravel/mcp's own routes/ai.php auto-discovery.
+     * Mirrors Laravel\Mcp\Server\McpServiceProvider::registerRoutes()'s
+     * own file-exists + route-cache guard for routes/ai.php.
+     */
+    protected function registerMcpRoutes(): void
+    {
+        $path = base_path('routes/mcp.php');
+
+        if (! file_exists($path)) {
+            return;
+        }
+
+        if (! $this->app->runningInConsole() && $this->app->routesAreCached()) {
+            return;
+        }
+
+        Route::group([], $path);
     }
 
     /**

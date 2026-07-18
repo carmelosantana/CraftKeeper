@@ -3334,3 +3334,310 @@ never touched (e.g. `Activity.tsx`, `server/Logs.tsx`,
 `types/plugins.ts`) — the one finding inside this task's own new file
 (`integrations/Api.tsx`'s import order) was fixed; the file is
 `eslint`/`prettier` clean.
+
+## Task 18: MCP Server, OAuth Grants, Resources, and Guarded Tools
+
+**The crux, restated precisely.** `App\Operations\OperationService::
+approve()`/`reject()` type-hint their second parameter as a real
+`App\Models\User` — never `App\Operations\OperationAuthor` (see that
+class's own docblock: `OperationAuthor::mcp()` exists specifically to
+make clear it can PROPOSE and can never satisfy `approve()`'s
+parameter type). Unlike Task 17's REST API (where a Sanctum personal-
+access-token principal is STRUCTURALLY a different type than `User`,
+making an "approve via API" call impossible even if a route existed),
+an MCP OAuth token issued through the real `/oauth/authorize` consent
+flow authenticates as the actual admin `User` who clicked Authorize —
+so nothing PHP's type system enforces would stop an `approve_operation`
+tool from compiling. The boundary here is therefore a closed tool list,
+not a type mismatch: `App\Mcp\Servers\CraftKeeperServer::$tools` names
+EXACTLY three classes (`ProposeConfigChange`, `ProposePluginOperation`,
+`RunSafeRcon`); no fourth tool class exists anywhere in the codebase.
+Calling `approve_operation` 404s via laravel/mcp's own
+`Laravel\Mcp\Server\Methods\CallTool::handle()` (`tools()->first(...,
+fn () => throw new JsonRpcException("Tool [...] not found.", -32602,
+...))`) — the "no approve tool" guarantee is the ABSENCE of a
+registration, not a runtime authorization check, and
+`tests/Contract/Mcp/McpCapabilityTest.php` locks the registered tool
+list byte-for-byte so a future change can't silently add a fourth tool.
+
+**`routes/mcp.php` is loaded explicitly, not via laravel/mcp's
+`routes/ai.php` auto-discovery.** The package's own
+`Laravel\Mcp\Server\McpServiceProvider::registerRoutes()` only ever
+looks for `base_path('routes/ai.php')`; the task brief names the file
+`routes/mcp.php`, and using that name deliberately keeps the file OUTSIDE
+that auto-discovery path and under this application's own control.
+`App\Providers\AppServiceProvider::registerMcpRoutes()` loads it via
+`Route::group([], base_path('routes/mcp.php'))` from `boot()` — the
+exact mechanism the package uses internally for `routes/ai.php`, mirrored
+for our own filename — with the SAME `file_exists()`/`routesAreCached()`
+guards. Loading it this way, rather than `require`ing it from
+`routes/web.php` (this app's existing convention for `routes/settings.php`/
+`routes/testing.php`), is deliberate: `routes/web.php` is wrapped in
+`bootstrap/app.php`'s `web` middleware group (session, CSRF, appearance),
+none of which belongs on a stateless, bearer-token-only JSON-RPC endpoint.
+`routes/mcp.php` carries only `Mcp::web('/mcp/craftkeeper', ...)
+->middleware(['auth:passport'])` plus four hand-written `.well-known`
+discovery routes — no `oauthRoutes()` call (see below).
+
+**A route file loaded via `Route::group([], $path)` is `require`d, not
+`require_once`d — no top-level function/class may be declared inside
+it.** `Illuminate\Routing\RouteFileRegistrar::register()` calls plain
+`require`, and this application's own test suite boots a FRESH
+`Illuminate\Foundation\Application` per Pest test (`RefreshDatabase`'s
+`createApplication()`), re-`require`ing `routes/mcp.php` every time —
+a `function mcpAuthorizationServerMetadata() {...}` declared directly in
+that file fatal-errored with "Cannot redeclare" the moment more than one
+test touched it. The `.well-known` metadata builders live in
+`App\Mcp\Support\McpOAuthMetadata` (an autoloaded class) instead —
+autoloading is idempotent per class name; `require`ing a route file
+is not.
+
+**No `Laravel\Passport\HasApiTokens` trait on `App\Models\User` — Task 17's
+Sanctum `HasApiTokens` trait stays the only one.** Both traits declare
+`tokens()`, `createToken()`, `currentAccessToken()`, `withAccessToken()`,
+`tokenCan()`/`tokenCant()` with genuinely different bodies (Sanctum
+queries `personal_access_tokens`; Passport queries `oauth_access_tokens`
+plus `clients()`/`oauthApps()`/`getProviderName()`), so using both
+together needs PHP trait-conflict-resolution aliasing for every
+colliding method — high risk of silently picking the wrong
+implementation for one of the two token systems. It turned out to be
+unnecessary: `Laravel\Passport\Guards\TokenGuard::authenticateViaBearerToken()`
+calls `$user?->withAccessToken(AccessToken::fromPsrRequest($psr))` via
+plain duck typing (no `instanceof OAuthenticatable` check anywhere in
+Passport's guard), and Sanctum's OWN `withAccessToken($accessToken)`/
+`currentAccessToken()` are completely untyped pass-throughs (`$this->
+accessToken = $accessToken; return $this;` / `return $this->accessToken;`)
+— they happily store and return a `Laravel\Passport\AccessToken` object
+just as well as a `Laravel\Sanctum\PersonalAccessToken`. `App\Models\User`
+required ZERO changes for Task 18.
+
+**Authorization resolves the OAuth CLIENT identity
+(`Laravel\Passport\Guards\TokenGuard::client()`), not the authenticated
+user's `currentAccessToken()`.** Two reasons, discovered while making
+`App\Mcp\Support\McpGuard::resolveGrant()` pass PHPStan level 7:
+(1) `currentAccessToken()`'s static return type is pinned to
+`Laravel\Sanctum\PersonalAccessToken` by Sanctum's own trait template
+(`@template TToken of HasAbilities = PersonalAccessToken`, never
+overridden) — Larastan therefore proves any `instanceof
+Laravel\Passport\AccessToken`/`TransientToken` check on it is "always
+false/true", even though the REAL runtime value on the `'passport'`
+guard is a `Laravel\Passport\AccessToken`. `TokenGuard::client(): ?Client`
+is precisely, correctly typed instead, with no such conflict.
+(2) It is the RIGHT authorization boundary anyway: `App\Models\McpGrant`'s
+ceiling is per-CLIENT, not per-token, and `client()` resolves identically
+(and non-bypassably) whether Passport authenticated via a bearer token
+or its unused first-party cookie flow — unlike `Laravel\Sanctum\
+TransientToken::can()` (Task 17's own documented Sanctum finding),
+Passport's cookie path still resolves a REAL client id from the token's
+`aud` claim, so there is no analogous "any session bypasses every scope
+check" hole to defend against here even though this app never sets that
+cookie. A SEPARATE Larastan false positive surfaced resolving the guard
+itself: `Auth::guard('passport')` is speculatively narrowed to
+`Illuminate\Auth\RequestGuard` (Larastan cannot statically evaluate the
+closure `Laravel\Passport\PassportServiceProvider::registerGuard()`
+registers via `Auth::extend('passport', ...)`, which actually
+constructs a `TokenGuard`), making a direct `instanceof TokenGuard`
+check report as "always false" right where it's written. Crossing a
+function boundary with an explicitly-typed `Illuminate\Contracts\Auth\
+Guard` parameter (`McpGuard::grantForGuard(Guard $guard)`) resets
+PHPStan's analysis to that declared interface type, so the instanceof
+check is evaluated honestly one call frame later — a real code
+restructuring, not a suppression (no `@phpstan-ignore`, cast, or inline
+`@var` override was used anywhere in this task).
+
+**`Laravel\Passport\Passport::actingAsClient()` is the test seam —
+Passport's own official testing helper, not a hand-rolled mock.** It
+mocks `League\OAuth2\Server\ResourceServer::validateAuthenticatedRequest()`
+and calls `TokenGuard::setClient()` directly — the EXACT method
+production traffic populates internally after real bearer-token
+validation. `tests/Concerns/CallsMcp.php` looks up the target
+`McpGrant`'s real `Laravel\Passport\Client` row and calls
+`Passport::actingAsClient($client, [], 'passport')` before invoking
+`Laravel\Mcp\Servers\CraftKeeperServer` in-process (via a bound closure
+calling `Server::runMethodHandle()`/`createContext()` directly — the
+identical mechanism `Laravel\Mcp\Server\Testing\PendingTestResponse`
+uses internally, just without going through its higher-level `tool()`/
+`resource()` helpers, which expose no way to read a call's raw JSON
+payload or distinguish the two denial shapes below). Grant resolution
+therefore runs through the SAME code (`TokenGuard::client()` → `McpGrant`
+lookup) in tests and in production — nothing security-relevant is
+special-cased for tests.
+
+**A real finding, found by writing the tests: `Response::error()` means
+two different JSON-RPC shapes depending on which primitive returns it.**
+`Laravel\Mcp\Server\Methods\CallTool implements Errable`, so a Tool's
+`Response::error($reason)` becomes a normal `result.isError: true`
+payload. `Laravel\Mcp\Server\Methods\ReadResource`/`GetPrompt` do NOT
+implement `Errable` — the IDENTICAL `Response::error()` call, inside
+`Laravel\Mcp\Server\Methods\Concerns\InteractsWithResponses::
+toJsonRpcResponse()`, gets converted into a THROWN
+`Laravel\Mcp\Exceptions\JsonRpcException` (code -32603) instead — a
+top-level JSON-RPC protocol `error` object. Both are safe (no data ever
+returned either way) and both carry THIS application's own denial
+message (never a generic one, since `App\Mcp\Support\McpGuard::run()`
+already catches every `Throwable` inside its own callback before
+anything reaches `toJsonRpcResponse()`), but the first draft of
+`tests/Support/McpCallResult::assertDenied()` only recognized the first
+shape — four resource/anonymous-denial tests failed for exactly this
+reason on the first real run (see the task report's RED/GREEN section).
+`assertDenied()` now accepts either shape; `assertMcpToolNotFound()`
+still requires the DISTINCT -32602 code specifically, so a "not found"
+can never be mistaken for a scope denial or vice versa in a test.
+
+**`McpGrant`, not the live Passport token, is authoritative for
+scope enforcement.** An admin sets a grant's `scopes` ceiling on the
+Integrations > MCP page BEFORE ever handing a `client_id` to MCP client
+software (`App\Http\Controllers\Integrations\McpGrantController::store()`
+provisions the `Laravel\Passport\Client` AND the `McpGrant` row in one
+step). `App\Policies\McpGrantPolicy` checks `McpGrant::$scopes`/
+`revoked_at`/`expires_at` exclusively — never the OAuth token's own
+`oauth_scopes` claim. This means even if a connecting MCP client's
+`/oauth/authorize?scope=...` request asks for (and an admin's consent
+click grants) a broader scope set than the pre-configured `McpGrant`
+allows, CraftKeeper's tool/resource enforcement still only permits what
+the Integrations page explicitly provisioned — the grant is a hard
+ceiling independent of whatever the live OAuth negotiation produces.
+
+**`propose_config_change`'s audited arguments deliberately never include
+`changes[].value`.** `App\Operations\InputRedactor::redact()` (which
+`App\Mcp\Support\McpGuard` applies to every audited argument set) only
+redacts by ARRAY KEY name; a proposed new value for a schema-secret
+field like `rcon.password` sits under the generic keys `"changes"`/
+`"value"`, which InputRedactor's pattern never matches, regardless of
+what the value itself contains. This is a real leak that a written test
+(`tests/Feature/Mcp/McpAuthorizationTest.php`, "never audits a raw
+secret value proposed through propose_config_change") caught during
+development before it shipped: `App\Mcp\Tools\ProposeConfigChange::handle()`
+now builds a SEPARATE, sanitized `$auditArguments` array (`path`,
+`expected_sha256`, and `changed_fields` — a list of field PATHS only)
+BEFORE calling `$guard->run()`, mirroring `App\Config\
+ConfigChangeService`'s own `Operation::redacted_input` (which likewise
+stores `changed_fields`, never raw values, for exactly this reason —
+see that class's `storeRawChanges()` docblock).
+
+**Bounded per-file config content uses a `rawurlencode()`d path segment,
+not a raw `{path}` URI-template variable.** `Laravel\Mcp\Support\
+UriTemplate::compileRegex()` matches each `{variable}` against `[^/]+` —
+it structurally cannot represent a value containing `/`, which most
+nested plugin config paths (`plugins/Foo/config.yml`) do.
+`App\Mcp\Resources\ConfigFileResource` declares its template as
+`craftkeeper://config/files/{encoded_path}` and
+`rawurldecode()`s the segment before passing it through the SAME
+`MinecraftPath::fromUserInput()` containment boundary every other
+filesystem caller uses; `App\Mcp\Resources\ConfigResource`'s inventory
+listing pre-computes each entry's `content_uri` the same way, so a
+client never needs to know the encoding convention itself.
+
+**No dynamic client registration, ever — closed by absence, not by a
+runtime check.** `Laravel\Mcp\Facades\Mcp::oauthRoutes()` is never
+called (it registers `POST /oauth/register` unconditionally); Passport's
+own `$registersJsonApiRoutes` (which would add a session-authenticated
+`POST /oauth/clients` self-service endpoint) is explicitly kept `false`.
+`Passport::$deviceCodeGrantEnabled` defaults `true` in this Passport
+version and its `/oauth/device` route registers unconditionally when
+true (`vendor/laravel/passport/routes/web.php`) — `App\Providers\
+AppServiceProvider::configurePassportGrantTypes()` must flip it to
+`false` from `register()`, NOT `boot()`: Passport is an auto-discovered
+package provider, so `Laravel\Passport\PassportServiceProvider::boot()`
+(which reads the flag while registering routes) runs before this
+application's own `AppServiceProvider::boot()` in Laravel's "package
+providers, then app providers" ordering — flipping it from `boot()`
+would be one phase too late. Every OAuth client this application EVER
+creates goes through `Laravel\Passport\ClientRepository::
+createAuthorizationCodeGrantClient()`, stored with
+`grant_types = ['authorization_code', 'refresh_token']` ONLY (no route
+anywhere lets any other creation path run) — `client_credentials` is
+enabled server-wide by `league/oauth2-server`'s `ClientCredentialsGrant`
+unconditionally and cannot be globally disabled, but no client this
+application ever creates carries that grant type, so no client can ever
+use it. `tests/Feature/Mcp/McpOAuthTest.php` locks all of this: route
+enumeration finds no `oauth/register`/`oauth/device`/`oauth/clients`/
+`oauth/scopes`/`oauth/tokens` path anywhere, and a freshly-created
+client's `grant_types` is asserted byte-for-byte.
+
+**PKCE is enforced by an upstream default this application never
+disables, not by application code.** `league/oauth2-server`'s
+`AuthCodeGrant::$requireCodeChallengeForPublicClients` defaults `true`
+and Passport never calls `disableRequireCodeChallengeForPublicClients()`
+anywhere; every OAuth client this application creates is PUBLIC
+(`confidential: false`, no secret), so PKCE is mandatory for it with no
+additional wiring needed.
+
+**Consent copy names each scope's concrete consequence — a dedicated
+map, not `App\Support\ApiScope::label()`.** `App\Mcp\Support\
+McpScopeConsequences::map()` registers, via `Passport::tokensCan()`, a
+sentence per scope describing what actually happens (e.g. "Propose
+configuration changes. Creates a change proposal only — a human must
+separately review and approve it... before anything is written to
+disk."), rendered on the real `/oauth/authorize` consent screen
+(`resources/views/mcp/authorize.blade.php`, styled with this
+application's own `--ck-*` CSS custom properties via inline `style`
+attributes, matching `resources/js/pages/integrations/Api.tsx`'s
+convention, rather than the vendor stub's shadcn Tailwind utility
+classes — those only resolve to CraftKeeper's real palette inside a
+`[data-theme]`-scoped subtree the Inertia `AppShell` sets up client-side,
+which this standalone, non-Inertia Blade page never has). Kept separate
+from `ApiScope::label()` (Task 17's short, generic UI label, reused
+as-is for the Integrations > MCP scope checkboxes) because a consent
+screen needs to spell out the consequence, not just name the ability.
+
+**Passport's OAuth migrations are hand-copied, not published.**
+`Laravel\Passport\PassportServiceProvider` only PUBLISHES its migrations
+(`vendor:publish --tag=passport-migrations`); like Sanctum's identical
+situation in Task 17, nothing auto-loads them. `database/migrations/
+2026_07_25_100000..100004_*` reproduce all five Passport tables
+(`oauth_clients`, `oauth_auth_codes`, `oauth_access_tokens`,
+`oauth_refresh_tokens`, `oauth_device_codes` — the last unused given the
+device grant is disabled, copied anyway for parity with a real
+`passport:install` and to avoid a surprise missing-table error if a
+future task ever re-enables it) verbatim, as normal dated, repo-owned
+migrations.
+
+**Passport's OAuth signing keys must exist on disk before any
+`auth:passport`-guarded route can even construct its guard.**
+`Laravel\Passport\PassportServiceProvider::makeCryptKey()` builds a
+`League\OAuth2\Server\CryptKey` from `storage/oauth-{public,private}.key`;
+`TokenGuard`'s constructor eagerly depends on `ResourceServer`, which
+depends on that key — even an ANONYMOUS request with no bearer token at
+all fails to construct the guard (not just to authenticate) if the keys
+are missing, because DI resolves the whole dependency graph before
+`TokenGuard::user()` ever runs. `php artisan passport:keys` was run once
+for this sandbox (keys are `/storage/*.key`-gitignored, matching this
+starter kit's existing `.gitignore` rule, so they were never committed);
+`composer.json`'s `setup` script gained `@php artisan passport:keys
+--force` (so a fresh CI/`composer setup` checkout generates them before
+`composer test` ever runs) and `docker/entrypoint.sh` gained an
+idempotent `[ ! -f storage/oauth-private.key ]` guard ahead of
+`migrate --force` (the command itself already refuses to overwrite an
+existing pair without `--force`, so this guard exists only to keep
+container-restart logs quiet, not for correctness).
+
+**Not built in this task (explicit scope decisions).** Plugin
+`install`/`update` are not exposed as MCP tools — `propose_plugin_operation`
+covers `disable`/`remove` only, mirroring Task 17's identical `/api/v1`
+scope decision (install/update need the heavier catalog-resolution +
+artifact-download pipeline the web Discover page already owns; adding it
+here would hand an MCP client a network-fetch surface this guarded tool
+set intentionally excludes). `config:apply` and `rcon:admin` are
+registered, selectable scopes (kept for parity with `ApiScope`'s full
+9-scope vocabulary and forward-compatibility) that no MCP tool in this
+version actually consumes — `McpScopeConsequences` says so explicitly in
+each one's consent description. `php artisan mcp:inspector
+mcp/craftkeeper` could not be run in this sandbox — it hangs waiting for
+interactive/browser input (the vendor package's own bundled
+documentation, `vendor/laravel/mcp/resources/boost/skills/mcp-development/
+SKILL.blade.php`, lists this under "Common Pitfalls": "Running `mcp:start`
+command (it hangs waiting for input)" — `mcp:inspector` behaves the same
+way here) — it is a manual verification step for a real terminal, not
+part of this task's automated gates; `tests/Contract/Mcp/
+McpCapabilityTest.php` plus `tests/Feature/Mcp/*` are the automated
+substitute the task instructions call for.
+
+**Gates, run for real:** `php artisan test tests/Feature/Mcp
+tests/Contract/Mcp` (47 tests, 1,082 assertions, all passing — 7 failed
+on the first real run for concrete, fixed reasons; see the task report's
+RED/GREEN section). `composer test` (809 tests total — 799 passed, 10
+pre-existing skips, 0 failures; PHPStan level 7 clean across `app/`,
+`database/`, `routes/`, `config/`; Pint clean). `npm run typecheck`
+(clean). `npm run build` (succeeds; `integrations/Mcp.tsx` bundles and
+code-splits correctly).

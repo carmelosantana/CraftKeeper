@@ -24,6 +24,15 @@ if [ "${1:-}" = "/usr/bin/supervisord" ]; then
         touch "$DB_DATABASE"
     fi
 
+    # Task 18: laravel/passport's OAuth token signing keys. Generated once
+    # and persisted on the container's storage volume (gitignored —
+    # /storage/*.key — never committed); `php artisan passport:keys`
+    # refuses to overwrite an existing pair without --force, so this guard
+    # only exists to keep restart logs quiet, not for correctness.
+    if [ ! -f storage/oauth-private.key ]; then
+        php artisan passport:keys --no-interaction
+    fi
+
     php artisan migrate --force --no-interaction
 fi
 

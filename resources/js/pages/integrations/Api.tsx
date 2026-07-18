@@ -100,16 +100,23 @@ export default function IntegrationsApi({
                         access.
                     </p>
                 </div>
-                <a
-                    href={openApiUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    data-test="openapi-link"
-                >
-                    <Button type="button" variant="outline">
-                        OpenAPI reference
-                    </Button>
-                </a>
+                <div className="flex items-center gap-[8px]">
+                    <a href="/integrations/mcp" data-test="mcp-integrations-link">
+                        <Button type="button" variant="outline">
+                            MCP
+                        </Button>
+                    </a>
+                    <a
+                        href={openApiUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-test="openapi-link"
+                    >
+                        <Button type="button" variant="outline">
+                            OpenAPI reference
+                        </Button>
+                    </a>
+                </div>
             </header>
 
             {newToken && (
