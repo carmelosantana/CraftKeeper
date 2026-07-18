@@ -43,7 +43,29 @@ class RunSafeRcon extends Tool
 
     public function handle(Request $request, McpGuard $guard, CommandPolicy $policy, RconCommandService $commands): Response
     {
-        return $guard->run('tool', $this->name(), ApiScope::RconSafe->value, $request->all(), function (McpGrant $grant) use ($request, $policy, $commands) {
+        // Audited arguments deliberately carry $policy->redactedDisplay()'s
+        // output, never the raw `command` value: App\Operations\
+        // InputRedactor::redact() (which App\Mcp\Support\McpGuard applies
+        // to every audited argument set) only redacts by ARRAY KEY name —
+        // a secret-shaped command's text sits entirely under the generic
+        // "command" key, which InputRedactor's pattern never matches,
+        // regardless of what the value itself contains (e.g. "login
+        // <password>"). This mirrors App\Mcp\Tools\ProposeConfigChange's
+        // own audit-argument sanitization, and reuses the SAME
+        // CommandPolicy::redactedDisplay() this tool already applies to
+        // its own response (below) — a secret-shaped command is masked,
+        // an ordinary safe command's text is preserved for a useful audit
+        // trail. McpGuard::run() audits these arguments on the
+        // denied/error path BEFORE the callback below ever runs, so the
+        // sanitized set — not the real command — is what gets persisted
+        // even when the command is refused as Elevated. Classification and
+        // execution below still use the REAL, unredacted command text.
+        $rawCommand = $request->get('command', '');
+        $auditArguments = [
+            'command' => $policy->redactedDisplay(is_string($rawCommand) ? $rawCommand : ''),
+        ];
+
+        return $guard->run('tool', $this->name(), ApiScope::RconSafe->value, $auditArguments, function (McpGrant $grant) use ($request, $policy, $commands) {
             $data = $request->validate([
                 'command' => ['required', 'string', 'max:500'],
             ]);

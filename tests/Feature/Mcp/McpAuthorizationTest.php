@@ -291,13 +291,23 @@ it('audits a denied call with the denial reason, never allowing it through', fun
 });
 
 it('redacts a secret-shaped argument before it is ever written to the audit log', function () {
-    $grant = McpGrant::factory()->withScopes(['rcon:safe'])->create();
+    $grant = McpGrant::factory()->withScopes([])->create();
 
     // "password" is not an actual argument key any of these tools accept,
     // but App\Operations\InputRedactor redacts by KEY NAME regardless of
-    // which tool sent it — this proves the redaction pass genuinely runs
-    // on every audited argument set, not just a hand-picked known field.
-    $this->callMcpTool($grant, 'run_safe_rcon', ['command' => 'list', 'password' => 'super-secret-value']);
+    // which tool sent it — this proves McpGuard's own generic redaction
+    // pass genuinely runs on every audited argument set, not just a
+    // hand-picked known field. Exercised via propose_plugin_operation
+    // (rather than run_safe_rcon or propose_config_change) because those
+    // two now build their OWN curated, tool-specific audit-argument set
+    // (see the redaction tests below) — propose_plugin_operation still
+    // hands McpGuard::run() $request->all() unmodified, so it is the tool
+    // that actually exercises McpGuard's generic pass in isolation.
+    $this->callMcpTool($grant, 'propose_plugin_operation', [
+        'filename' => 'Foo.jar',
+        'operation' => 'disable',
+        'password' => 'super-secret-value',
+    ]);
 
     $event = McpAuditEvent::query()->latest()->first();
     expect($event->arguments['password'])->toBe(InputRedactor::MASK);
@@ -331,4 +341,49 @@ it('never audits a raw secret value proposed through propose_config_change', fun
 
     $event = McpAuditEvent::query()->latest()->first();
     expect(json_encode($event->arguments))->not->toContain('a-new-secret-value');
+});
+
+it('never audits a raw secret-shaped RCON command value, even when refused as Elevated', function () {
+    $grant = McpGrant::factory()->withScopes(['rcon:safe'])->create();
+
+    // "login <password>" is not on the Safe allow-list — it is refused as
+    // Elevated and never proposed — but App\Mcp\Support\McpGuard::run()
+    // audits the arguments on this denied path BEFORE the callback ever
+    // runs, so the raw secret must never reach the audit row regardless of
+    // the classification outcome.
+    $result = $this->callMcpTool($grant, 'run_safe_rcon', ['command' => 'login hunter2SecretPass']);
+
+    expect($result->isError())->toBeTrue()
+        ->and($result->message())->toContain('not on');
+    expect(Operation::query()->count())->toBe(0);
+
+    $event = McpAuditEvent::query()->latest()->first();
+    expect($event->outcome)->toBe('denied')
+        ->and(json_encode($event->arguments))->not->toContain('hunter2SecretPass');
+});
+
+it('never audits a raw secret-shaped substring embedded in an otherwise Safe RCON command', function () {
+    $grant = McpGrant::factory()->withScopes(['rcon:safe'])->create();
+
+    // "say <message>" is on the Safe allow-list and IS proposed, but the
+    // message text itself looks like a secret (password=...) — the
+    // audited argument must still be redacted, even though the command is
+    // Safe and does get proposed.
+    $result = $this->callMcpTool($grant, 'run_safe_rcon', ['command' => 'say password=hunter2']);
+
+    expect($result['status'])->toBe('proposed');
+
+    $event = McpAuditEvent::query()->latest()->first();
+    expect($event->outcome)->toBe('allowed')
+        ->and(json_encode($event->arguments))->not->toContain('password=hunter2')
+        ->and(json_encode($event->arguments))->not->toContain('hunter2');
+});
+
+it('still records a useful, non-secret audit argument for a normal safe RCON command', function () {
+    $grant = McpGrant::factory()->withScopes(['rcon:safe'])->create();
+
+    $this->callMcpTool($grant, 'run_safe_rcon', ['command' => 'list']);
+
+    $event = McpAuditEvent::query()->latest()->first();
+    expect($event->arguments)->toBe(['command' => 'list']);
 });
