@@ -30,7 +30,7 @@ info:
     carries an `X-Correlation-Id` header, echoing a caller-supplied one when
     present.
 servers:
-  - url: /api/v1
+  - url: /
 security:
   - ApiToken: []
 tags:

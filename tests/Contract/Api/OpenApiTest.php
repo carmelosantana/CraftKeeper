@@ -142,6 +142,57 @@ it('every documented openapi.yaml operation is a real, registered /api/v1 route'
     }
 });
 
+/**
+ * Composes `servers[0].url` with a documented path the same naive way a
+ * generated client does (plain string concatenation), then normalizes
+ * the result the way a URL parser would: collapsing any RUN of repeated
+ * "/" into one. Deliberately does NOT collapse a repeated PATH SEGMENT
+ * (".../api/v1/api/v1/...") — that's exactly the double-prefix bug this
+ * test exists to catch, and a real HTTP client never "fixes" it either.
+ */
+function composedOperationUrl(string $serverUrl, string $documentedPath): string
+{
+    $composed = $serverUrl.$documentedPath;
+
+    return (string) preg_replace('#/{2,}#', '/', $composed);
+}
+
+/**
+ * Task 17 follow-up (Fix 1): the previous contract tests above compare
+ * the RAW documented path directly against Laravel's route URI, so they
+ * never notice that a generated OpenAPI client doesn't request the raw
+ * documented path — it requests `servers[0].url` + path. With
+ * `servers[0].url: /api/v1` and full `/api/v1/...` path keys, that
+ * composition doubled the prefix (`/api/v1/api/v1/server/status`), a
+ * broken URL no earlier test caught. This test composes+normalizes
+ * every documented path the same way a real client would and asserts
+ * the result is a real registered route URI with the `api/v1` prefix
+ * appearing exactly once — neither doubled nor missing.
+ */
+it('composes servers[0].url with every documented path to a real, single-prefixed /api/v1 route (catches double- or missing-prefix drift)', function () {
+    $spec = openApiSpec();
+    $serverUrl = $spec['servers'][0]['url'] ?? null;
+
+    expect($serverUrl)->not->toBeNull('openapi.yaml must declare servers[0].url — a generated client composes it with every documented path.');
+
+    $registeredUris = apiV1Routes()->map(fn ($route) => $route->uri())->all();
+    expect($registeredUris)->not->toBeEmpty();
+
+    foreach ($spec['paths'] ?? [] as $path => $methods) {
+        $composed = composedOperationUrl($serverUrl, (string) $path);
+        $composedUri = ltrim($composed, '/');
+
+        expect(substr_count($composedUri, 'api/v1'))->toBe(
+            1,
+            "servers[0].url [{$serverUrl}] composed with documented path [{$path}] produced [{$composed}], which does not contain the api/v1 prefix exactly once (double- or missing-prefix)."
+        );
+
+        expect(in_array($composedUri, $registeredUris, true))->toBeTrue(
+            "servers[0].url [{$serverUrl}] composed with documented path [{$path}] produced [{$composed}], which is not a real registered /api/v1 route."
+        );
+    }
+});
+
 it('every operation documents scope security, a summary, and both a success and an error response', function () {
     $spec = openApiSpec();
 

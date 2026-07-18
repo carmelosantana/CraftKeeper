@@ -139,3 +139,39 @@ it('returns the ORIGINAL rcon proposal for a repeated Idempotency-Key', function
     expect($second['id'])->toBe($first['id']);
     expect(Operation::query()->where('type', 'rcon.command')->count())->toBe(1);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Secrets never serialize (Task 17 follow-up, Fix 2): Task 10's
+| RconCommandService::proposeCommand() stores only a REDACTED display
+| value on the Operation itself when the raw command text is
+| secret-shaped, stashing the real text in App\Models\RconCommandPayload
+| — a table App\Http\Resources\Api\V1\OperationResource never loads (see
+| its own class docblock). This locks that invariant at the API layer,
+| mirroring ConfigApiTest.php's identical coverage for config proposals.
+|--------------------------------------------------------------------------
+*/
+
+it('never serializes a raw secret value in an rcon.command operation, proposed and read back over the API', function () {
+    $token = User::factory()->create()->createToken('rcon-admin', ['rcon:admin', 'activity:read'])->plainTextToken;
+    $rawSecret = 'mySuperSecretPass123';
+
+    // "login <password>"-shaped: CommandPolicy::looksLikeSecret() catches
+    // it via the known secret-taking command name "login", and it's
+    // Elevated (not on the Safe allow-list), so this requires rcon:admin
+    // — matching the Task 12 Activity test's own secret-shaped command.
+    $propose = $this->withToken($token)
+        ->postJson('/api/v1/operations/rcon-commands', ['command' => "login {$rawSecret}"])
+        ->assertCreated();
+
+    expect($propose->getContent())->not->toContain($rawSecret);
+
+    $operationId = $propose->json('data.id');
+
+    $show = $this->withToken($token)
+        ->getJson("/api/v1/operations/{$operationId}")
+        ->assertOk()
+        ->assertJsonPath('data.type', 'rcon.command');
+
+    expect($show->getContent())->not->toContain($rawSecret);
+});
