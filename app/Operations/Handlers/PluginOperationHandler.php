@@ -387,6 +387,31 @@ final class PluginOperationHandler implements OperationHandler
         return OperationResult::success("Re-enabled {$plan->target_relative_path}.");
     }
 
+    /**
+     * Mirrors executeRollback()'s safety exactly (see that method and the
+     * class docblock): whatever is CURRENTLY on disk is preserved to
+     * rollback storage BEFORE it is ever overwritten, so undoing an
+     * earlier operation can never lose a LATER state unrecoverably — even
+     * install v1 -> update v1->v2 -> update v2->v3, then undoing the
+     * v1->v2 change, leaves v3 recoverable rather than silently gone.
+     *
+     * The write's expected hash is this operation's OWN propose-time
+     * `verified_sha256` — the checksum of whatever THIS operation itself
+     * left on disk (the new bytes it installed for install/update/
+     * rollback; absent — hash('') — for a remove, which left nothing)
+     * fixed at propose time, exactly the same "a value captured before
+     * the write, not a freshly re-read one" contract executeRollback()/
+     * executeInstallOrUpdate() use via `plan->base_sha256` for THEIR OWN
+     * writes. base_sha256 itself is not usable here: it records the state
+     * from BEFORE this operation ran, which this operation's own
+     * (already-succeeded) write necessarily moved away from — using it
+     * would refuse every undo unconditionally, including one with no
+     * intervening change at all. verified_sha256 records the state AFTER
+     * this operation ran, which is exactly what should still be on disk
+     * right now if nothing has intervened — so a later change (like a
+     * second update) is refused (StaleFileHash) rather than clobbered,
+     * while an immediate, undisturbed undo still succeeds.
+     */
     private function undoFromPreservedArtifact(Operation $operation): OperationResult
     {
         $plan = PluginOperationPlan::forOperation($operation->id);
@@ -411,11 +436,21 @@ final class PluginOperationHandler implements OperationHandler
             return OperationResult::failure('plugin.rollback_snapshot_missing', 'No preserved artifact was found for this operation.');
         }
 
+        if ($targetPath->exists) {
+            try {
+                $this->rollbacks->preserve($targetPath, 'pre-undo', $operation->id);
+            } catch (Throwable $e) {
+                return OperationResult::failure('plugin.preserve_failed', 'Could not preserve the currently-installed artifact before undoing this change; refusing to proceed.', ['error' => $e->getMessage()]);
+            }
+        }
+
         $bytes = $this->rollbacks->readBytes($artifact);
-        $expected = $targetPath->exists ? (string) hash_file('sha256', $targetPath->absolutePath) : hash('sha256', '');
+        $expected = (string) ($plan->verified_sha256 ?? hash('sha256', ''));
 
         try {
             $this->filesystem->writeAtomically($targetPath, $bytes, $expected);
+        } catch (StaleFileHash) {
+            return OperationResult::failure('plugin.hash_mismatch', 'The plugin file changed on disk since this change was made; refusing to undo it.');
         } catch (Throwable $e) {
             return OperationResult::failure('plugin.rollback_failed', $e->getMessage());
         }

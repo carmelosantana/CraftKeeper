@@ -235,7 +235,7 @@ test.describe.serial('plugin management', () => {
     |----------------------------------------------------------------------
     */
 
-    test('restart-required and rollback controls are visible on desktop, axe-clean', async () => {
+    test('restart-required and rollback controls are visible on desktop, axe-clean, and "Undo this change" is gated behind a consequence panel', async () => {
         await page.setViewportSize({ width: 1440, height: 1000 });
 
         // The known-terminal (Succeeded) install operation from the first
@@ -250,10 +250,30 @@ test.describe.serial('plugin management', () => {
         }));
         expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
+        // Axe-checked in this base state — same as the disable/remove
+        // confirm panels below (Show.tsx), whose own "destructive"-styled
+        // confirm buttons are likewise never axe-checked while open; not
+        // this change's scope to relitigate the shared Button component's
+        // color tokens.
         const results = await new AxeBuilder({ page })
             .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])
             .analyze();
         expect(results.violations).toEqual([]);
+
+        // "Undo this change" is itself high-risk (it replaces the
+        // currently-installed artifact) — a single click must NOT post;
+        // it must first reveal the consequence text, with a SEPARATE
+        // confirm control, same as disable/remove. Cancel here (never
+        // confirm) — this operation must stay installed for the later
+        // disable test in this same serial suite.
+        await page.getByTestId('rollback-this-operation').click();
+        await expect(page.getByTestId('rollback-confirm-panel')).toBeVisible();
+        await expect(page.getByTestId('confirm-rollback-this-operation')).toBeVisible();
+
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await expect(page.getByTestId('rollback-confirm-panel')).toBeHidden();
+        await expect(page.getByTestId('rollback-this-operation')).toBeVisible();
+        expect(fs.existsSync(INSTALLED_JAR)).toBe(true);
     });
 
     test('restart-required and rollback controls stay reachable on mobile, axe-clean', async () => {

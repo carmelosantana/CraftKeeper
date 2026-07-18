@@ -21,15 +21,22 @@ import type { PluginOperationProps } from '@/types/plugins';
  * server start is actually OBSERVED (never cleared just because the
  * write succeeded — see App\Plugins\PluginLifecycleService::
  * isRestartObserved()).
+ *
+ * "Undo this change" is itself high-risk (App\Operations\Handlers\
+ * PluginOperationHandler::undoFromPreservedArtifact() replaces whatever
+ * is CURRENTLY installed), so — same principle as Show.tsx's disable/
+ * remove/restore controls — it shows its consequence text BEFORE a
+ * separate confirm control, rather than posting on a single click.
  */
 export default function PluginOperation({ operation, plan, targetRelativePath, canRollback, restartObserved }: PluginOperationProps) {
     const [pending, setPending] = useState(false);
+    const [confirmingRollback, setConfirmingRollback] = useState(false);
 
     function post(action: 'approve' | 'reject' | 'rollback') {
         router.post(
             `/plugins/operations/${operation.id}/${action}`,
             {},
-            { onStart: () => setPending(true), onFinish: () => setPending(false) },
+            { onStart: () => setPending(true), onFinish: () => { setPending(false); setConfirmingRollback(false); } },
         );
     }
 
@@ -170,15 +177,41 @@ export default function PluginOperation({ operation, plan, targetRelativePath, c
 
             {canRollback && (
                 <div className="mt-[16px]" data-test="rollback-controls">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => post('rollback')}
-                        disabled={pending}
-                        data-test="rollback-this-operation"
-                    >
-                        {pending ? 'Rolling back…' : 'Undo this change'}
-                    </Button>
+                    {confirmingRollback ? (
+                        <div
+                            className="flex flex-wrap items-center gap-[10px] rounded-[8px] border px-[12px] py-[10px]"
+                            style={ckSubtleSurfaceStyle('warning')}
+                            data-test="rollback-confirm-panel"
+                        >
+                            <span className="text-[12px]" style={{ color: 'var(--ck-text)' }}>
+                                Replaces {targetRelativePath ?? 'the currently installed file'} with the artifact
+                                this {operation.type} replaced; the current version will be preserved for rollback.
+                            </span>
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={pending}
+                                onClick={() => post('rollback')}
+                                data-test="confirm-rollback-this-operation"
+                            >
+                                {pending ? 'Rolling back…' : 'Confirm undo'}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingRollback(false)}>
+                                Cancel
+                            </Button>
+                        </div>
+                    ) : (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setConfirmingRollback(true)}
+                            disabled={pending}
+                            data-test="rollback-this-operation"
+                        >
+                            Undo this change
+                        </Button>
+                    )}
                 </div>
             )}
 

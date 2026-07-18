@@ -318,3 +318,78 @@ it('undoes an install via the generic operation rollback, removing the newly-ins
 
     expect(file_exists($this->minecraftRoot.'/plugins/BrandNew.jar'))->toBeFalse();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Undoing an UPDATE (the artifact-restore branch of
+| undoFromPreservedArtifact()) must never clobber a LATER state
+| unrecoverably: whatever is CURRENTLY on disk is preserved BEFORE the
+| undo overwrites it, and an intervening change since the operation being
+| undone is REFUSED rather than silently clobbered.
+|--------------------------------------------------------------------------
+*/
+
+it('preserves the current artifact before undoing an update, and refuses the undo when a later change has drifted the file', function () {
+    $v1 = jarBytes('Foo', '1.0.0');
+    $v2 = jarBytes('Foo', '2.0.0');
+    $v3 = jarBytes('Foo', '3.0.0');
+    file_put_contents($this->minecraftRoot.'/plugins/Foo.jar', $v1);
+    $installation = makeInstallation(['relative_path' => 'plugins/Foo.jar', 'name' => 'Foo', 'sha256' => hash('sha256', $v1)]);
+
+    // install v1 -> update v1->v2 (op U) -> update v2->v3 (op V). Two
+    // downloads in one test need Http::sequence() (not two Http::fake()
+    // calls) — with `stream: true` (App\Plugins\PluginDownloader's own
+    // option), Laravel's HTTP fake only replays a SECOND plain
+    // Http::fake()'s body correctly across a fresh fake registration
+    // within the same test process; a queued sequence avoids that.
+    Http::fake(['*' => Http::sequence()->push($v2)->push($v3)]);
+    $releaseV2 = PluginReleaseFactory::make(sha256: hash('sha256', $v2), version: '2.0.0', name: 'Foo');
+    $opU = $this->lifecycle->proposeUpdate($installation, $releaseV2, $this->author);
+    $this->operations->approve($opU->id, $this->admin);
+    $this->operations->execute($opU->id);
+    expect(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v2);
+
+    $installation->refresh();
+    $releaseV3 = PluginReleaseFactory::make(sha256: hash('sha256', $v3), version: '3.0.0', name: 'Foo');
+    $opV = $this->lifecycle->proposeUpdate($installation, $releaseV3, $this->author);
+    $this->operations->approve($opV->id, $this->admin);
+    $this->operations->execute($opV->id);
+    expect(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v3);
+
+    // Open op U ("v1 -> v2") and click "Undo this change".
+    $result = $this->operations->rollback($opU->id, $this->author);
+
+    // (1) The CURRENT (v3) bytes were preserved to plugin-rollbacks BEFORE
+    // the undo write was attempted — recoverable, regardless of whether
+    // the write itself is subsequently refused.
+    $preservedV3 = PluginRollbackArtifact::query()
+        ->where('relative_path', 'plugins/Foo.jar')
+        ->where('sha256', hash('sha256', $v3))
+        ->first();
+    expect($preservedV3)->not->toBeNull()
+        ->and(file_get_contents($preservedV3->storage_path))->toBe($v3);
+
+    // (2) The undo is REFUSED (a stale-hash conflict, surfaced as a typed
+    // error on the operation) rather than clobbering v3.
+    expect($result->error_code)->toBe('plugin.hash_mismatch')
+        ->and(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v3);
+});
+
+it('undoes an update via the generic operation rollback when nothing has changed since, restoring the earlier artifact', function () {
+    $v1 = jarBytes('Foo', '1.0.0');
+    $v2 = jarBytes('Foo', '2.0.0');
+    file_put_contents($this->minecraftRoot.'/plugins/Foo.jar', $v1);
+    $installation = makeInstallation(['relative_path' => 'plugins/Foo.jar', 'name' => 'Foo', 'sha256' => hash('sha256', $v1)]);
+
+    Http::fake(['*' => Http::response($v2)]);
+    $release = PluginReleaseFactory::make(sha256: hash('sha256', $v2), version: '2.0.0', name: 'Foo');
+    $opU = $this->lifecycle->proposeUpdate($installation, $release, $this->author);
+    $this->operations->approve($opU->id, $this->admin);
+    $this->operations->execute($opU->id);
+    expect(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v2);
+
+    $result = $this->operations->rollback($opU->id, $this->author);
+
+    expect($result->error_code)->toBeNull()
+        ->and(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v1);
+});

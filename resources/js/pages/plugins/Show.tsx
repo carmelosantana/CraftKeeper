@@ -17,16 +17,18 @@ type GuardedAction = 'disable' | 'remove' | null;
  * Installed plugin detail — disk state, source, version, compatibility
  * evidence, dependencies, checksum, pending action, history, and the
  * GUARDED lifecycle actions (update/disable/remove/rollback). Every
- * destructive action shows its consequence text BEFORE the confirm
- * control appears (per the plan's "Destructive and high-risk actions
- * show consequences before the confirmation control" — same principle
- * resources/js/features/config/DiffReview.tsx already applies), and
- * every control here is always in normal document flow — reachable on
- * mobile exactly as on desktop, never hidden behind a hover-only or
- * desktop-only affordance.
+ * destructive AND high-risk action — disable/remove, and "Restore this
+ * version" (which replaces the RUNNING artifact) — shows its consequence
+ * text BEFORE the confirm control appears (per the plan's "Destructive
+ * and high-risk actions show consequences before the confirmation
+ * control" — same principle resources/js/features/config/DiffReview.tsx
+ * already applies), and every control here is always in normal document
+ * flow — reachable on mobile exactly as on desktop, never hidden behind
+ * a hover-only or desktop-only affordance.
  */
 export default function PluginShow({ plugin, history, rollbackArtifacts }: PluginShowProps) {
     const [confirming, setConfirming] = useState<GuardedAction>(null);
+    const [confirmingRestoreId, setConfirmingRestoreId] = useState<number | null>(null);
     const [pending, setPending] = useState(false);
 
     function post(url: string, data: Record<string, FormDataConvertible> = {}) {
@@ -35,6 +37,7 @@ export default function PluginShow({ plugin, history, rollbackArtifacts }: Plugi
             onFinish: () => {
                 setPending(false);
                 setConfirming(null);
+                setConfirmingRestoreId(null);
             },
         });
     }
@@ -257,30 +260,58 @@ export default function PluginShow({ plugin, history, rollbackArtifacts }: Plugi
                         Preserved artifacts (rollback)
                     </h2>
                     <ul className="grid gap-[8px]">
-                        {rollbackArtifacts.map((artifact) => (
-                            <li
-                                key={artifact.id}
-                                className="flex flex-wrap items-center justify-between gap-[10px] rounded-[7px] border px-[11px] py-[8px] text-[12px]"
-                                style={{ borderColor: 'var(--ck-border)' }}
-                            >
-                                <span style={{ color: 'var(--ck-text)' }}>
-                                    <span className="font-mono text-[11px]" style={{ color: 'var(--ck-text-2)' }}>
-                                        {artifact.sha256.slice(0, 12)}…
-                                    </span>{' '}
-                                    ({artifact.reason}, {artifact.createdAt})
-                                </span>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={pending || hasPending}
-                                    onClick={() => post(`/plugins/${plugin.filename}/rollback`, { rollback_artifact_id: artifact.id })}
-                                    data-test="rollback-to-artifact"
+                        {rollbackArtifacts.map((artifact) =>
+                            confirmingRestoreId === artifact.id ? (
+                                <li
+                                    key={artifact.id}
+                                    className="flex flex-wrap items-center gap-[10px] rounded-[8px] border px-[12px] py-[10px] text-[12px]"
+                                    style={ckSubtleSurfaceStyle('warning')}
+                                    data-test="restore-confirm-panel"
                                 >
-                                    Restore this version
-                                </Button>
-                            </li>
-                        ))}
+                                    <span style={{ color: 'var(--ck-text)' }}>
+                                        Replaces the currently installed {plugin.filename} with this preserved
+                                        version ({artifact.sha256.slice(0, 12)}…, {artifact.reason}); the current
+                                        version will be preserved for rollback.
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant="destructive"
+                                        size="sm"
+                                        disabled={pending || hasPending}
+                                        onClick={() => post(`/plugins/${plugin.filename}/rollback`, { rollback_artifact_id: artifact.id })}
+                                        data-test="confirm-rollback-to-artifact"
+                                    >
+                                        {pending ? 'Restoring…' : 'Confirm restore'}
+                                    </Button>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => setConfirmingRestoreId(null)}>
+                                        Cancel
+                                    </Button>
+                                </li>
+                            ) : (
+                                <li
+                                    key={artifact.id}
+                                    className="flex flex-wrap items-center justify-between gap-[10px] rounded-[7px] border px-[11px] py-[8px] text-[12px]"
+                                    style={{ borderColor: 'var(--ck-border)' }}
+                                >
+                                    <span style={{ color: 'var(--ck-text)' }}>
+                                        <span className="font-mono text-[11px]" style={{ color: 'var(--ck-text-2)' }}>
+                                            {artifact.sha256.slice(0, 12)}…
+                                        </span>{' '}
+                                        ({artifact.reason}, {artifact.createdAt})
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={pending || hasPending}
+                                        onClick={() => setConfirmingRestoreId(artifact.id)}
+                                        data-test="rollback-to-artifact"
+                                    >
+                                        Restore this version
+                                    </Button>
+                                </li>
+                            ),
+                        )}
                     </ul>
                 </section>
             )}
