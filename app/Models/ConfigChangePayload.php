@@ -37,6 +37,26 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * way to read a real value back out is the `changes` attribute on a
  * model instance, exactly like `Secret::value`.
  *
+ * Data minimization: a row is only useful while its Operation is IN-FLIGHT
+ * (Proposed/Approved) — rollback restores from filesystem snapshots (see
+ * Concerns\AppliesConfigChanges::rollback()), never from this table, so
+ * once the owning Operation reaches a terminal outcome the row is dead
+ * weight holding a decryptable-at-rest secret for no reason. deleteForOperation()
+ * below is the one sanctioned way to remove it, called from exactly two
+ * places once the raw value can never legitimately be needed again:
+ * Concerns\AppliesConfigChanges::applyApprovedChange() (after execute()
+ * finishes its write attempt, Succeeded or Failed — see that method's
+ * try/finally) and OperationService::reject() (a Proposed operation that
+ * never executes is dead the moment it's rejected). Both call sites only
+ * ever DELETE by operation_id; neither reads or decrypts `changes`, so this
+ * doesn't widen the "blast radius" described above — it only shrinks the
+ * at-rest footprint of a payload nothing can use anymore. (A stale
+ * Proposed operation that simply expires without ever being approved,
+ * executed, or rejected has no such trigger today — there is no scheduled
+ * job that transitions it out of Proposed — so its payload lingers until
+ * TTL-expired execute() attempts and fails, or it's rejected. Noted as a
+ * known gap rather than force-fit here.)
+ *
  * @property int $id
  * @property string $operation_id
  * @property list<array{kind: string, path: string, value: mixed}> $changes
@@ -61,5 +81,16 @@ class ConfigChangePayload extends Model
     public function operation(): BelongsTo
     {
         return $this->belongsTo(Operation::class);
+    }
+
+    /**
+     * Delete this operation's raw change payload once it is dead. A plain,
+     * column-blind `DELETE ... WHERE operation_id = ?` — see the class
+     * docblock for why this is safe to call from outside the two config
+     * operation handlers.
+     */
+    public static function deleteForOperation(string $operationId): void
+    {
+        static::query()->where('operation_id', $operationId)->delete();
     }
 }

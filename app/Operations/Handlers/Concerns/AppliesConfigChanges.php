@@ -57,7 +57,30 @@ use Throwable;
  */
 trait AppliesConfigChanges
 {
+    /**
+     * Wraps the actual apply logic in a try/finally so that, no matter
+     * which of its many early-return failure paths (or its single success
+     * path) is taken, App\Models\ConfigChangePayload::deleteForOperation()
+     * always runs exactly once right before this method returns. Every
+     * return from doApplyApprovedChange() corresponds 1:1 to the operation
+     * going terminal (Succeeded or Failed — see
+     * App\Operations\OperationService::execute()), so the payload is
+     * genuinely dead by the time finally runs. Crucially, `finally` runs
+     * AFTER the try block's return VALUE has already been computed, so on
+     * the success path the real value has already been written to disk
+     * (writeAtomically() inside doApplyApprovedChange() is synchronous)
+     * before the row holding that same raw value is deleted — never before.
+     */
     private function applyApprovedChange(Operation $operation, string $auditEventType, string $successVerb): OperationResult
+    {
+        try {
+            return $this->doApplyApprovedChange($operation, $auditEventType, $successVerb);
+        } finally {
+            ConfigChangePayload::deleteForOperation($operation->id);
+        }
+    }
+
+    private function doApplyApprovedChange(Operation $operation, string $auditEventType, string $successVerb): OperationResult
     {
         $payload = ConfigChangePayload::query()->where('operation_id', $operation->id)->first();
 

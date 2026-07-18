@@ -5,6 +5,7 @@ namespace App\Operations;
 use App\Events\OperationUpdated;
 use App\Models\AuditEvent;
 use App\Models\ChangeProposal;
+use App\Models\ConfigChangePayload;
 use App\Models\Operation;
 use App\Models\OperationStep;
 use App\Models\User;
@@ -130,6 +131,15 @@ class OperationService
                 'rejected_at' => now(),
                 'outcome' => $reason,
             ])->save();
+
+            // A rejected operation will never execute, so any config
+            // change payload stored for it (App\Models\ConfigChangePayload
+            // — a config.apply/config.restore-only concept) is dead the
+            // moment it's rejected. Generic and a no-op for every other
+            // operation type; see that model's class docblock for why a
+            // delete-only call here doesn't compromise its "never read
+            // outside the two config handlers" invariant.
+            ConfigChangePayload::deleteForOperation($operation->id);
 
             $this->audit($operation, 'operation.rejected', $author, ['reason' => $reason]);
             $this->broadcast($operation);
