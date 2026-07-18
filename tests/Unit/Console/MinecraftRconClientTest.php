@@ -127,6 +127,33 @@ it('throws RconAuthFailed when the auth response request id is -1', function () 
         ->toThrow(RconAuthFailed::class);
 });
 
+it('accepts a SERVERDATA_AUTH_RESPONSE (type 2) auth reply carrying the auth request id as a successful login', function () {
+    // A real Source/Minecraft RCON server answers a successful SERVERDATA_AUTH
+    // with type 2 (SERVERDATA_AUTH_RESPONSE), not type 0. Mainstream RCON
+    // clients (mcrcon, etc.) authenticate by checking ONLY the request id on
+    // this packet and ignore its type entirely — id -1 means failure,
+    // anything else (echoing the id we sent) means success.
+    $bytes = FakeRconTransport::packet(1, 2, '')
+        .FakeRconTransport::packet(2, 0, 'There are 1 of a max of 20 players online: Steve')
+        .FakeRconTransport::packet(3, 0, '');
+    $transport = FakeRconTransport::respondingWith($bytes);
+
+    $response = (new MinecraftRconClient($transport))->execute(RconCommand::from('list'));
+
+    expect($response->body)->toBe('There are 1 of a max of 20 players online: Steve');
+});
+
+it('accepts a type-0 auth reply carrying the auth request id as a successful login (back-compat)', function () {
+    $bytes = FakeRconTransport::packet(1, 0, '')
+        .FakeRconTransport::packet(2, 0, 'There are 1 of a max of 20 players online: Steve')
+        .FakeRconTransport::packet(3, 0, '');
+    $transport = FakeRconTransport::respondingWith($bytes);
+
+    $response = (new MinecraftRconClient($transport))->execute(RconCommand::from('list'));
+
+    expect($response->body)->toBe('There are 1 of a max of 20 players online: Steve');
+});
+
 it('sends the configured host-independent password in the auth packet body', function () {
     $bytes = FakeRconTransport::packet(1, 0, '').FakeRconTransport::packet(3, 0, '');
     $transport = FakeRconTransport::respondingWith($bytes);

@@ -20,7 +20,12 @@ use App\Console\Exceptions\RconTimeout;
  * more empty NUL. Types: auth=3, exec=2, response=0 (sent by the server
  * only). Auth failure is signaled by a response whose request id is -1 —
  * never a distinguishable "packet shape", so it must be checked
- * explicitly (see authenticate()).
+ * explicitly (see authenticate()). A successful auth reply's TYPE is
+ * deliberately never checked: real Source/Minecraft RCON servers reply
+ * to a successful SERVERDATA_AUTH with type 2 (SERVERDATA_AUTH_RESPONSE),
+ * while this class's own command-response packets use type 0 — mainstream
+ * RCON clients accept either on the auth reply and gate success on the
+ * request id alone, and authenticate() does the same.
  *
  * Multi-packet responses: Source RCON gives no way to tell from a single
  * packet whether more are coming, so — following the standard workaround
@@ -130,7 +135,14 @@ final class MinecraftRconClient implements RconClient
             throw new RconAuthFailed('RCON authentication failed: the server rejected the configured password.');
         }
 
-        if ($packet['type'] !== self::TYPE_RESPONSE || $packet['requestId'] !== self::AUTH_REQUEST_ID) {
+        // Success is gated on the request id alone, NOT the packet type. A
+        // real Source/Minecraft RCON server answers a successful auth with
+        // type 2 (SERVERDATA_AUTH_RESPONSE), not type 0 — requiring type 0
+        // here would reject every successful login from a real server.
+        // Mainstream RCON clients (mcrcon, etc.) do the same: check the id,
+        // ignore the type. Both TYPE_RESPONSE (0) and TYPE_AUTH_RESPONSE (2)
+        // are therefore accepted as long as the id matches what we sent.
+        if ($packet['requestId'] !== self::AUTH_REQUEST_ID) {
             throw new InvalidRconPacket("Received an unexpected RCON auth response (type {$packet['type']}, id {$packet['requestId']}).");
         }
     }

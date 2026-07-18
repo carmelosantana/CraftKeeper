@@ -1725,3 +1725,52 @@ a hard security constraint, not an incidental detail:**
    services, jobs — references this route or `E2eResetController`; it
    exists solely for `tests/e2e/*.spec.ts` `beforeAll` hooks to call over
    HTTP via Playwright's `request` fixture.
+
+## Task 10 Fix — RCON Auth Response Acceptance Is ID-Based, Not Type-Based
+
+**Bug: `MinecraftRconClient::authenticate()` required the auth response
+packet's TYPE to be `TYPE_RESPONSE` (0), but a real Source/Minecraft RCON
+server answers a SUCCESSFUL `SERVERDATA_AUTH` with type 2
+(`SERVERDATA_AUTH_RESPONSE`), not type 0.** Against any live server this
+meant: request id ≠ -1 (correct password), but type 2 ≠ 0 → `authenticate()`
+threw `InvalidRconPacket` unconditionally → RCON authentication failed
+100% of the time in production, even with the right password. Task 10's
+own decision log already documented the *intended* design correctly
+("`authenticate()` implements exactly that: send auth, read ONE packet,
+check its id" — see the "brief's own framing of auth" entry above); the
+implementation simply didn't match its own documented intent, having
+grown an extra, incorrect `type !== TYPE_RESPONSE` clause alongside the
+id check. Mainstream RCON clients (mcrcon, etc.) authenticate by checking
+ONLY the request id on the auth response and ignore the packet type
+entirely, which is the behavior this fix restores.
+
+**Fix, applied strictly to the auth-response branch of `authenticate()`
+only:** request id `-1` still throws `RconAuthFailed` (unchanged); any
+other id that matches the auth request id we sent now succeeds
+regardless of whether the packet's type is 0 or 2; an id that is neither
+`-1` nor the auth request id still throws `InvalidRconPacket` (unchanged
+— this is a distinct request-id-mismatch protection, not the bug). No
+other framing/length/bounds validation was touched — `readPacket()`'s
+length and terminator checks, `readCommandResponse()`'s own type
+requirement for command-response packets, and every other bound in the
+class are exactly as Task 10 left them.
+
+**Verified TDD-style:** a new test asserting a type-2 auth response
+carrying the matching request id succeeds was added first and confirmed
+RED (`InvalidRconPacket`) against the pre-fix code, then GREEN after the
+one-line fix; a type-0 auth response with a matching id (back-compat) and
+request id `-1` (still `RconAuthFailed`) were also confirmed to keep
+passing. No existing test asserted the old "type must be 0" behavior as
+its behavior-under-test (every existing auth-response fixture already
+used type 0, which remains accepted), so no existing test required
+correction — only new coverage was added.
+
+**Residual risk / what this fix does NOT prove:** this is unit-level
+coverage against `FakeRconTransport` (no network, no real server) — it
+proves the *framing logic* now accepts a real server's documented
+response shape, but end-to-end auth against an actual Source/Minecraft
+RCON server can only be confirmed by running it against one. Task 20's
+live Legendary-stack smoke test is the one place that happens in this
+project, and it MUST exercise RCON auth specifically (not just "the
+container comes up") for this fix to be considered production-verified
+rather than merely protocol-verified.
