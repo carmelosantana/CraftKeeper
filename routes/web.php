@@ -5,6 +5,7 @@ use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\Integrations\ApiTokenController;
 use App\Http\Controllers\Integrations\McpGrantController;
 use App\Http\Controllers\LogController;
@@ -105,14 +106,13 @@ Route::middleware(['auth'])->group(function () {
     // own — only the same session auth every other page in this group
     // already requires.
     //
-    // AppShell's primary navigation (resources/js/layouts/AppShell.tsx)
-    // already carries a top-level "Integrations" entry that defaults to
-    // `/integrations` — the API token page is the only Integrations
-    // surface this task builds (AI provider/RCON setup and MCP client
-    // grants are Design/handoff/pages.json's remaining Integrations
-    // screens, out of scope here), so `/integrations` redirects straight
-    // to it rather than 404ing.
-    Route::redirect('integrations', '/integrations/api');
+    // Task 19: `/integrations` now renders the real overview page
+    // (Connected/Disabled/Degraded/Misconfigured for all ten
+    // integrations — App\Support\IntegrationHealthChecker) instead of
+    // redirecting straight to the API token page, which is what stood in
+    // for it before this task built the rest of the Integrations surface.
+    Route::get('integrations', [IntegrationController::class, 'index'])->name('integrations.index');
+    Route::post('integrations/test/{key}', [IntegrationController::class, 'test'])->name('integrations.test');
 
     Route::prefix('integrations')->name('integrations.')->group(function () {
         Route::get('api', [ApiTokenController::class, 'index'])->name('api');

@@ -78,3 +78,24 @@ export interface McpIntegrationsPageProps {
     availableScopes: ApiScopeOptionDTO[];
     grants: McpGrantDTO[];
 }
+
+/**
+ * Task 19's Integrations overview — mirrors
+ * App\Support\IntegrationStatus::toArray() exactly. `state` is always one
+ * of exactly four values; every row also carries a distinct shape glyph
+ * via StatusBadge, so state is never color-alone (see StatusBadge.tsx's
+ * own docblock).
+ */
+export type IntegrationState = 'connected' | 'disabled' | 'degraded' | 'misconfigured';
+
+export interface IntegrationStatusDTO {
+    key: string;
+    label: string;
+    state: IntegrationState;
+    reason: string | null;
+    testable: boolean;
+}
+
+export interface IntegrationsPageProps {
+    integrations: IntegrationStatusDTO[];
+}

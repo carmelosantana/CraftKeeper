@@ -3641,3 +3641,197 @@ pre-existing skips, 0 failures; PHPStan level 7 clean across `app/`,
 `database/`, `routes/`, `config/`; Pint clean). `npm run typecheck`
 (clean). `npm run build` (succeeds; `integrations/Mcp.tsx` bundles and
 code-splits correctly).
+
+## Task 19: Integrations, Settings, Backups, Diagnostics, and Optional Analytics
+
+**The support bundle's exclusion list is enforced structurally, not by
+redaction alone — this is the crux the task brief itself names ("a leaked
+secret here is a real exfil").** `App\Support\SupportBundleService` never
+queries `App\Models\Secret`, `App\Models\AiConversation`/`AiMessage`, or
+`App\Models\ConfigChangePayload` at all — those tables simply never appear
+in any `Eloquent` call this class makes, so there is no redaction step
+that could fail to catch something it was never given. On top of that
+structural exclusion, every text file the bundle writes is ALSO passed
+through `App\Ai\SecretRedactor::redactKnownSecrets()` (every currently
+configured `Secret` value, scrubbed byte-for-byte) before it reaches disk
+— a second, independent line of defense for the one thing that genuinely
+can't be excluded by table (a secret value that leaked into a log line or
+an operation's `outcome` text). `tests/Feature/Support/SupportBundleTest.php`
+seeds five distinct secret canaries (a `Secret` value, an AI API key, an
+`AiMessage.content` chat canary, a `ConfigChangePayload.changes` canary,
+and a live API token's plaintext AND its persisted sha256 hash) and
+asserts byte-for-byte absence across every file in the generated zip —
+plus a manual, tool-assisted `unzip` + `grep -rF` pass against a real
+generated bundle (see the task report) as an out-of-band sanity check
+independent of the Pest assertions.
+
+**`App\Support\BackupService` uses SQLite's real online-backup mechanism
+(`VACUUM INTO`), not a raw file copy of a live database.** A raw
+`copy()`/`file_get_contents()` of `database.sqlite` while the application
+keeps serving requests can capture a torn, mid-write snapshot; `VACUUM
+INTO` produces one complete, compacted, internally consistent copy in a
+single atomic statement, safe to run against a live connection. The one
+real friction this caused: SQLite refuses `VACUUM`/`VACUUM INTO` while
+ANY transaction is open, and Pest's `RefreshDatabase` (`tests/Pest.php`)
+wraps every `Feature` test in one. `BackupService` itself contains NO
+transaction-detection workaround — it stays simple and correct for real
+production use, where a normal request is never wrapped in an ambient
+transaction. Instead, `tests/Feature/Support/BackupServiceTest.php` (and
+`tests/Feature/Settings/BackupsPageTest.php`) commit the wrapping
+transaction themselves in `beforeEach`, before any test data is inserted.
+Laravel's own `RefreshDatabase::beginDatabaseTransaction()` teardown
+closure already detects a connection that ends a test with no open PDO
+transaction and sets `RefreshDatabaseState::$migrated = false`, forcing a
+full `migrate:fresh` before the next `Feature` test runs — so committing
+early can never leak state forward into an unrelated test, without this
+task needing to invent its own cleanup mechanism.
+
+**Backups intentionally back up the database wholesale (including the
+`secrets` table's ciphertext), while the three separately-archived
+JSON exports are held to a stricter, genuinely-secret-free bar.** This is
+the task's own ambiguity resolution #2, applied literally:
+`database.sqlite` restores RCON/AI credentials transparently (an operator
+restoring onto a fresh install should not have to re-enter them) — safe
+only because `Secret::value` is `encrypted` at the Eloquent-attribute
+level (AES-256-GCM under `APP_KEY`), documented in `BackupService`'s own
+docblock as holding ONLY as long as the same `APP_KEY` is used to
+restore. `settings.json`/`catalog-cache.json`/`config.json` are
+human-readable, inspect-without-a-SQLite-client conveniences, NOT the
+restore mechanism (`restore()` only ever reads `database.sqlite`) — so
+`settings.json` is the entire (non-secret-by-construction) `settings`
+table run through `App\Operations\InputRedactor::redact()` defensively,
+`catalog-cache.json` is bookkeeping fields only (no `payload`), and
+`config.json` is `config('craftkeeper')` verbatim (paths and timeout
+bounds, no credentials). `restore()` also checksum-verifies
+`database.sqlite` against `manifest.json` before writing anything, and
+refuses outright to restore into a data directory that already has a
+`database.sqlite` — "must restore into a FRESH `/data`" is enforced, not
+just documented. Minecraft worlds are excluded by simple absence: neither
+`BackupService` nor `SupportBundleService` ever reads
+`config('craftkeeper.minecraft_root')` or anything under it.
+
+**The Integrations overview and the support bundle's `health.json` share
+one computation — `App\Support\IntegrationHealthChecker` — so the two
+surfaces can never silently disagree.** Every check reads already-computed,
+passively-recorded state (`App\Server\ServerStatusService`'s snapshot,
+`App\Catalog\CatalogSourceHealth`'s per-source rows, a new
+`App\Ai\AiManager::healthDetail()` that exposes the Disabled/Misconfigured/
+Degraded distinction `provider()` deliberately collapses away for its own
+callers) — this class itself never makes an outbound network call, so
+calling it from a support-bundle export is always cheap and side-effect
+free. The "actionable test" each Integrations row gets
+(`POST /integrations/test/{key}`) is what actually performs a fresh live
+probe, and it does so through the SAME recording paths the passive
+background checks already use (`Artisan::call('server:sample-state')` for
+RCON, `AbstractPluginSource::search()`'s own `recordSuccess()`/
+`recordFailure()` for the three catalog sources) rather than inventing a
+parallel health-tracking mechanism. `StatusBadge.tsx`'s `STATUS_BADGE_META`
+gained three entries (`connected`/`disabled`/`misconfigured`) additively —
+every existing consumer of that map is unaffected — to cover the task's
+exact four-state vocabulary with the Task 3 primitive's own
+color-plus-shape-plus-label convention, never color alone.
+
+**Umami is a plain, unproxied `<script>` tag resolved directly in
+`resources/views/app.blade.php`, with no dependency, no controller prop,
+and no code path that can make an outbound HTTP call from the backend at
+all.** `App\Support\UmamiScript::enabled()` is true only when
+`analytics.umami.enabled` is set AND the configured script URL parses
+with an explicit `https` scheme and a non-empty host AND a non-blank
+website id is present — any other combination (disabled, half-configured,
+an `http://` URL) collapses to "not rendered," never a broken or insecure
+tag. `allowedOrigin()` exists purely so Task 20's CSP middleware can
+permit exactly this one external origin later; no CSP is added in this
+task. Verified via the brief's own verbatim Step 1 test plus four more:
+never-configured, enabled-but-incomplete, and enabled-with-an-insecure-URL
+all assert `assertDontSee('umami', false)` against `/overview`'s full
+rendered HTML (not just the JSON props) — and a positive-path test
+asserts the exact single `<script defer src="..." data-website-id="...">`
+tag appears, with `defer` always present and no CraftKeeper-owned proxy
+URL anywhere in the response. `tests/e2e/settings-and-integrations.spec.ts`
+reconfirms the disabled case in a real browser (zero `<script src>`
+containing "umami", the literal string "umami" appearing exactly once —
+the Integrations page's own row label naming the integration — across the
+whole rendered DOM) and separately confirms the positive path by saving a
+full configuration through Settings > Analytics and observing both that
+page and the Integrations overview flip to Active/Connected in agreement.
+Neither `composer.json` nor `package.json` gained any dependency for this
+— there is no analytics SDK anywhere in this application.
+
+**A real bug the e2e suite caught that no Pest test could have: Radix
+`Checkbox`'s native mirror input defaults to `value="on"` (matching a
+plain HTML checkbox), which fails Laravel's `boolean` validation rule
+(`1`/`0`/`true`/`false` only — not `"on"`).** Every boolean toggle
+submitted through Inertia's `<Form>` component as a real, native form
+(Settings > Analytics' "Enable Umami analytics", Settings > AI Providers'
+"Allow sending unredacted context") now passes an explicit `value="1"` on
+the `<Checkbox>` — Pest's controller tests pass a native PHP `true`
+directly and could never have exercised this real browser/FormData path;
+`tests/e2e/settings-and-integrations.spec.ts`'s Analytics save-and-verify
+test failed against the unfixed version (the checkbox visibly ticked, but
+`enabled` never persisted) before this fix, and passes now.
+
+**Reconciling with existing pages rather than duplicating them.**
+Settings' nine sections: Server, AI Providers, and Analytics are new
+(`App\Http\Controllers\SettingsController`); Backups is new with its own
+controller (`App\Http\Controllers\BackupController`, file-producing
+logic); Security, Appearance, and Profile (Task 4/3) and the API/MCP
+integration pages (Tasks 17/18) are only LINKED from the new
+`resources/js/pages/Settings.tsx` index, never duplicated or re-created
+under a different name — `resources/js/pages/settings/{server,ai,
+analytics,advanced}.tsx` follow the EXISTING lowercase-file, `AppLayout`
++ `SettingsLayout`, shadcn-class convention `security.tsx`/`appearance.tsx`/
+`profile.tsx` already use (extending `SettingsLayout`'s own
+`sidebarNavItems`), rather than the `AppShell`/`--ck-*`-token convention
+`integrations/{Api,Mcp}.tsx` use — keeping the Settings section internally
+consistent with itself rather than fragmenting it mid-section. The two new
+TOP-LEVEL pages this task adds (`Integrations.tsx`, `Settings.tsx`) DO use
+`AppShell`/`--ck-*` tokens, matching `Overview.tsx`/`DesignSystem.tsx` and
+the ambiguity resolution's own explicit instruction for the Integrations
+overview. A genuine, pre-existing gap this surfaced: `resources/js/app.tsx`'s
+layout resolver never had a case for `integrations/*` at all (Tasks 17/18
+fell through to `default: return AppLayout`, silently double-wrapping
+`Api.tsx`/`Mcp.tsx` in BOTH the old starter-kit shell and `AppShell`) —
+fixed alongside adding cases for the new top-level `Integrations`/`Settings`
+pages, which self-wrap the identical way.
+
+**`/settings` and `/integrations` now render real overview pages instead
+of redirecting.** `Route::redirect('settings', '/settings/profile')` and
+`Route::redirect('integrations', '/integrations/api')` are both replaced
+with real controller actions — `AppShell`'s primary navigation already
+promised a top-level destination for each; this task is what actually
+builds it. `tests/Feature/Http/ApiTokenControllerTest.php`'s own
+"redirects /integrations to the api page" test is updated to assert the
+new, intentional behavior instead (`routes/web.php`'s own comment on the
+route explains why).
+
+**Not built in this task (explicit scope decisions).** No web "restore"
+button: restoring means replacing the running application's own database
+file, which this version treats as a manual operational step (stop the
+container, place the downloaded archive's `database.sqlite` at a fresh
+`/data`, start again) rather than a self-service action that would need
+to interrupt the very request serving it —
+`App\Support\BackupService::restore()` is the tested, reusable primitive
+that step (or a future guided-restore UI) is built on.
+`App\Ai\DocumentationIndex` is always reported "Connected" on the
+Integrations page — it is static, in-process, curated data with no
+network dependency at all (its own Task 16 docblock), so it structurally
+cannot be Degraded/Misconfigured. A pre-existing, app-wide Sonner toast
+color-contrast issue (`li[data-sonner-toast]` foreground/background
+~1.88:1, well under the 4.5:1 AA threshold) was found incidentally by
+sequencing an axe scan directly after a flash-toast-triggering action in
+`tests/e2e/settings-and-integrations.spec.ts` — the same
+`Inertia::flash('toast', ...)` convention every controller in this app
+already uses, not something this task's own pages introduced. Worked
+around by re-ordering that one spec file's tests (axe scans first, the
+toast-triggering "Test" click last) rather than fixed here — `Toaster` is
+a shared Task 3 primitive, out of this task's scope.
+
+**Gates, run for real:** `php artisan test tests/Feature/Settings
+tests/Feature/Support` (55 tests, all passing). `composer test` (858
+tests total — 848 passed, 10 pre-existing skips, 0 failures; PHPStan
+level 7 clean; Pint clean). `npm run typecheck` (clean). `npm run build`
+(succeeds; `Integrations.tsx`/`Settings.tsx`/`settings/{server,ai,
+analytics,backups,advanced}.tsx` bundle and code-split correctly).
+`npm run e2e -- --grep "integrations|settings|backup"` (5 tests, all
+passing, axe-clean) and the full e2e suite (46 tests, all passing — 41
+pre-existing plus these 5, no regressions).

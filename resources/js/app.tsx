@@ -22,15 +22,23 @@ createInertiaApp({
             case name === 'Overview':
             case name === 'Activity':
             case name === 'Assistant':
+            case name === 'Integrations':
+            case name === 'Settings':
             case name.startsWith('config/'):
             case name.startsWith('server/'):
             case name.startsWith('plugins/'):
-                // config/*, server/*, plugins/*, Overview, Activity, and
+            case name.startsWith('integrations/'):
+                // config/*, server/*, plugins/*, integrations/*,
+                // Integrations, Settings, Overview, Activity, and
                 // Assistant all wrap themselves in the CraftKeeper AppShell
                 // (Task 3) directly, the same way DesignSystem does — the
                 // starter kit's own AppLayout below is a different,
                 // pre-CraftKeeper sidebar shell that these pages must not be
-                // double-wrapped in.
+                // double-wrapped in. `integrations/*` (Api.tsx, Mcp.tsx)
+                // predates this explicit case (Tasks 17/18 fell through to
+                // `default` below, which double-wraps in AppLayout too) —
+                // added here alongside Task 19's own top-level Integrations/
+                // Settings pages, which self-wrap the exact same way.
                 return null;
             case name.startsWith('auth/'):
             case name.startsWith('onboarding/'):

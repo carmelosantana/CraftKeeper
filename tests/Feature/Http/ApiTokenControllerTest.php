@@ -13,10 +13,17 @@ it('requires authentication for the integrations api page', function () {
     $this->get('/integrations/api')->assertRedirect('/login');
 });
 
-it('redirects /integrations to the api page', function () {
+it('renders the Integrations overview at /integrations, not a redirect', function () {
+    // Task 19 replaced the plain redirect-to-/integrations/api that stood
+    // in for a real overview page with App\Http\Controllers\
+    // IntegrationController — see routes/web.php's own comment on this
+    // route. tests/Feature/Settings/IntegrationsPageTest.php covers that
+    // page's actual content in full; this only guards against the old
+    // redirect regressing back in.
     $this->actingAs($this->admin)
         ->get('/integrations')
-        ->assertRedirect('/integrations/api');
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('Integrations'));
 });
 
 it('renders the available scopes and any existing tokens', function () {

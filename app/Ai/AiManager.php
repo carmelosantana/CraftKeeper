@@ -65,6 +65,36 @@ final class AiManager
         return $provider->health()->available ? $provider : null;
     }
 
+    /**
+     * The finer-grained detail `provider()` deliberately collapses away
+     * (see this class's own docblock: "every caller only ever needs to
+     * branch on null vs not-null, never on WHY"). Task 19's Integrations
+     * overview and support bundle DO need the "why" — a distinct
+     * Disabled/Misconfigured/Degraded/Connected state, each with its own
+     * operator-facing meaning — so this exposes it without changing
+     * provider()'s own contract or callers.
+     *
+     * `activeProvider` is included (not just a bool) so a caller can tell
+     * "nothing chosen at all" (Disabled) apart from "a provider was
+     * chosen but is missing a required field" (Misconfigured) — both
+     * collapse to `configured: false`/`health: null` in `provider()`, but
+     * they mean different things to an operator and call for different UI.
+     *
+     * @return array{activeProvider: ?string, configured: bool, health: ?AiProviderHealth}
+     */
+    public function healthDetail(): array
+    {
+        $config = $this->configuration();
+
+        if (! $config->isConfigured()) {
+            return ['activeProvider' => $config->activeProvider, 'configured' => false, 'health' => null];
+        }
+
+        $provider = $this->build($config);
+
+        return ['activeProvider' => $config->activeProvider, 'configured' => true, 'health' => $provider?->health()];
+    }
+
     private function build(AiProviderConfiguration $config): ?AiProvider
     {
         if (! $config->isConfigured()) {

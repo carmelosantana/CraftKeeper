@@ -33,6 +33,14 @@ export const STATUS_BADGE_META = {
     degraded: { label: 'Degraded', tone: 'warning', glyph: 'square' },
     offline: { label: 'Offline', tone: 'danger', glyph: 'square' },
     unknown: { label: 'Unknown', tone: 'neutral', glyph: 'square' },
+    // Task 19's Integrations overview: Connected/Disabled/Degraded/
+    // Misconfigured for all ten integrations (App\Support\
+    // IntegrationHealthChecker). `degraded` above is reused as-is;
+    // these three are additive — every existing STATUS_BADGE_META
+    // consumer is unaffected.
+    connected: { label: 'Connected', tone: 'success', glyph: 'square-pulse' },
+    disabled: { label: 'Disabled', tone: 'neutral', glyph: 'square' },
+    misconfigured: { label: 'Misconfigured', tone: 'danger', glyph: 'triangle' },
     'in-progress': { label: 'In progress', tone: 'info', glyph: 'spinner' },
     'pending-restart': {
         label: 'Pending restart',

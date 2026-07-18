@@ -17,13 +17,38 @@ const sidebarNavItems: NavItem[] = [
         icon: null,
     },
     {
+        title: 'Server',
+        href: '/settings/server',
+        icon: null,
+    },
+    {
         title: 'Security',
         href: editSecurity(),
         icon: null,
     },
     {
+        title: 'AI Providers',
+        href: '/settings/ai',
+        icon: null,
+    },
+    {
         title: 'Appearance',
         href: editAppearance(),
+        icon: null,
+    },
+    {
+        title: 'Analytics',
+        href: '/settings/analytics',
+        icon: null,
+    },
+    {
+        title: 'Backups',
+        href: '/settings/backups',
+        icon: null,
+    },
+    {
+        title: 'Advanced',
+        href: '/settings/advanced',
         icon: null,
     },
 ];

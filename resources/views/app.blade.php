@@ -41,6 +41,19 @@
         <x-inertia::head>
             <title>{{ config('app.name', 'Laravel') }}</title>
         </x-inertia::head>
+
+        {{--
+            Task 19's optional Umami analytics tag (App\Support\UmamiScript).
+            Resolved and echoed directly here — never through a controller
+            prop or an Inertia shared prop — so it renders identically
+            whether the request is a full page load or an Inertia partial
+            reload, and so that disabling it is a one-line `@if` with
+            nothing else in this template to keep in sync. When disabled
+            (the default), this emits nothing at all: no <script>, no
+            comment mentioning analytics, nothing an
+            `assertDontSee('umami')`-style test could ever catch.
+        --}}
+        {!! app(\App\Support\UmamiScript::class)->tag() !!}
     </head>
     <body class="font-sans antialiased">
         <x-inertia::app />
