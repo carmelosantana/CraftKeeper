@@ -1,0 +1,371 @@
+name: CI
+
+# Task 21: replaces the old single-job `tests.yml`. Five independent jobs
+# (php, frontend, browser, integration, container) plus a static workflow
+# audit (zizmor) so a failure in one domain doesn't hide failures in the
+# others and each job's log stays focused on one concern.
+#
+# Supply-chain posture (see docs/architecture/decisions.md, Task 21):
+#   - Every third-party action below is pinned to a full 40-char commit
+#     SHA (resolved from that action's own repository, never guessed),
+#     with the human-readable tag in a trailing comment.
+#   - No `pull_request_target` anywhere in this repository — every trigger
+#     here is plain `pull_request` (fork PRs never get repo secrets or a
+#     privileged checkout).
+#   - `actions/cache/restore` only. There is no unconditional save: a save
+#     step only ever runs when `github.event_name == 'push'` (i.e. code
+#     already merged to `main`), so a fork pull_request run can read the
+#     shared cache but can never write to it — the exact vector the
+#     TanStack cache-poisoning attack used. Only dependency-download
+#     directories are cached (Composer's `files` cache, npm's cache,
+#     Playwright's browser downloads) — never `vendor/`, `node_modules/`,
+#     or a built application.
+#   - Top-level `permissions` is `contents: read` and no job in this
+#     workflow elevates it — nothing here pushes, publishes, or signs.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PHP_EXTENSIONS: mbstring, pdo_sqlite, bcmath, intl, zip, pcntl, exif, gd, sodium, opcache
+
+jobs:
+  php:
+    name: PHP (Pest, PHPStan, Pint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Restore Composer cache
+        id: composer-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies (exact composer.lock)
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Save Composer cache
+        if: github.event_name == 'push' && steps.composer-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer/files
+          key: ${{ steps.composer-cache.outputs.cache-primary-key }}
+
+      - name: Restore npm cache
+        id: npm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install Node dependencies (exact package-lock.json)
+        run: npm ci
+
+      - name: Save npm cache
+        if: github.event_name == 'push' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
+
+      # Boot-only application state, never committed: an ephemeral APP_KEY,
+      # OAuth signing keys (Task 18: even an anonymous request fails to
+      # construct the `passport` guard without these on disk), and an empty
+      # SQLite file (in-memory `:memory:` is what Pest actually uses per
+      # phpunit.xml — this file only exists so nothing that touches
+      # DB_DATABASE by path, outside the test runner, fails to boot).
+      - name: Prepare ephemeral application state
+        run: |
+          test -f .env || cp .env.example .env
+          php artisan key:generate --ansi
+          php artisan passport:keys --force --no-interaction
+          mkdir -p database && touch database/database.sqlite
+
+      # Task 1's Wayfinder Vite plugin shells out to `artisan
+      # wayfinder:generate` during the build, and several Feature tests
+      # render real Inertia pages through `@vite(...)` — both need
+      # public/build/manifest.json to exist before `composer test` runs.
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: composer test (Pest, PHPStan, Pint)
+        run: composer test
+
+      - name: Upload PHP logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: php-logs
+          path: |
+            storage/logs/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    name: Frontend (Vitest, typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Restore npm cache
+        id: npm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install Node dependencies (exact package-lock.json)
+        run: npm ci
+
+      - name: Save npm cache
+        if: github.event_name == 'push' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
+
+      # Informational only, not a hard gate: running these for real (Task
+      # 21) found pre-existing lint/format debt across dozens of files
+      # this task's own scope never touches (docs/CI only) — matching
+      # Task 17's own documented precedent of running `lint:check` as "an
+      # extra sanity check, not a mandated gate" rather than silently
+      # skipping it. `continue-on-error` keeps the signal visible in the
+      # job log without blocking merges on debt this task didn't create
+      # and isn't scoped to fix. A future, dedicated lint-cleanup task
+      # can drop `continue-on-error` once the debt is paid down.
+      - name: Lint (informational — pre-existing debt, see comment above)
+        run: npm run lint:check
+        continue-on-error: true
+
+      - name: Format check (informational — pre-existing debt, see comment above)
+        run: npm run format:check
+        continue-on-error: true
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Vitest
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  browser:
+    name: Browser (Playwright e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Restore Composer cache
+        id: composer-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies (exact composer.lock)
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Save Composer cache
+        if: github.event_name == 'push' && steps.composer-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/composer/files
+          key: ${{ steps.composer-cache.outputs.cache-primary-key }}
+
+      - name: Restore npm cache
+        id: npm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install Node dependencies (exact package-lock.json)
+        run: npm ci
+
+      - name: Save npm cache
+        if: github.event_name == 'push' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
+
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers (Chromium only — playwright.config.ts's only configured project)
+        run: npx playwright install --with-deps chromium
+
+      - name: Save Playwright browser cache
+        if: github.event_name == 'push' && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
+
+      - name: Prepare ephemeral application state
+        run: |
+          test -f .env || cp .env.example .env
+          php artisan key:generate --ansi
+          php artisan passport:keys --force --no-interaction
+          mkdir -p database && touch database/database.sqlite
+
+      - name: Playwright e2e
+        run: npm run e2e
+
+      - name: Upload Playwright report and screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/**
+            test-results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  integration:
+    name: Integration (docker-compose.integration.yml)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run the 10-scenario integration stack
+        run: |
+          docker compose -f docker-compose.integration.yml up --build \
+            --abort-on-container-exit --exit-code-from tests
+
+      - name: Collect compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.integration.yml logs --no-color > integration-compose.log
+
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-compose-logs
+          path: integration-compose.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down (this project's own resources only)
+        if: always()
+        run: docker compose -f docker-compose.integration.yml down -v
+
+  container:
+    name: Container (Dockerfile build + Compose contract)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build image (single-arch, load only, never pushed)
+        run: docker build -t craftkeeper:ci .
+
+      - name: Validate compose.example.yml
+        env:
+          CRAFTKEEPER_APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: docker compose -f compose.example.yml config
+
+      - name: Verify PHP version inside the image
+        run: docker run --rm craftkeeper:ci php -v | grep -q "PHP 8.4"
+
+      - name: Verify the image declares a HEALTHCHECK
+        run: |
+          hc=$(docker inspect --format='{{json .Config.Healthcheck}}' craftkeeper:ci)
+          echo "$hc"
+          [ "$hc" != "null" ]
+
+      - name: Verify the image never mounts/requires the Docker socket
+        run: |
+          ! grep -q "docker.sock" compose.example.yml
+          ! grep -riq "docker.sock" Dockerfile
+
+  zizmor:
+    name: Static workflow audit (zizmor)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # zizmor is a PyPI-distributed Rust binary, not an npm package.
+      # `pipx` ships preinstalled on GitHub-hosted ubuntu-latest runners;
+      # `pipx run` fetches it into an ephemeral, isolated environment for
+      # this one invocation. Pinned to an exact release (not `zizmor` /
+      # latest) so a compromised new zizmor release can't silently start
+      # failing (or, worse, passing) this job.
+      - name: Run zizmor against every workflow
+        run: pipx run zizmor==1.27.0 .github/workflows/

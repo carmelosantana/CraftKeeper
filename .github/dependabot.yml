@@ -1,5 +1,15 @@
 version: 2
 updates:
+  # Task 21: Dependabot only ever OPENS a pull request — it cannot merge,
+  # approve, or push directly to a protected branch, and every PR it opens
+  # still runs through ci.yml's full job matrix (and, for anything under
+  # .github/, requires a CODEOWNERS review — see .github/CODEOWNERS) before
+  # it can land. `cooldown` holds a freshly-published version for the
+  # given number of days before Dependabot will propose it at all, which
+  # is exactly the "don't install a package published in the last 24-48
+  # hours" defense a fast-moving supply-chain compromise needs (most
+  # malicious npm/PyPI versions are pulled by the registry within hours;
+  # letting a few days pass means Dependabot never even sees them).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -10,3 +20,34 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      composer-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5

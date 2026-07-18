@@ -1,0 +1,19 @@
+# Task 21: CraftKeeper CODEOWNERS.
+#
+# GitHub enforces this file only when the repository also has a branch
+# protection rule with "Require review from Code Owners" turned on for
+# the target branch (main) — this file alone does not gate anything by
+# itself. It is deliberately narrow: `.github/` (workflows, this file,
+# CODEOWNERS itself, and Dependabot's own configuration) always requires
+# a review from someone who can be held accountable for CI/CD and
+# supply-chain posture specifically, since a compromised or careless edit
+# there can leak secrets, gain write/publish access, or weaken the
+# `id-token`/permissions boundaries documented in ci.yml/image.yml.
+#
+# Later maintainers: add narrower per-directory owners below `.github/`
+# as the contributor base grows — do not widen `.github/`'s own
+# reviewer list without keeping it at least this strict.
+
+* @carmelosantana
+
+/.github/ @carmelosantana

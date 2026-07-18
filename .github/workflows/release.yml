@@ -1,0 +1,100 @@
+name: Release Notes
+
+# Task 21: creates the GitHub Release entry for a `v*` tag — separate from
+# image.yml (which builds/signs/publishes the container image itself) so a
+# release-notes formatting change can never touch the image-publishing
+# permissions, and vice versa. Triggered by the same tag push, running in
+# parallel with image.yml.
+#
+# Supply-chain posture: top-level `permissions: contents: read`; the one
+# job below elevates to `contents: write` for itself only (creating a
+# GitHub Release is a repository content operation, not a package
+# publish — it needs no `packages` or `id-token` scope at all). No
+# third-party action is used for the release itself — `gh`, GitHub's own
+# CLI, ships preinstalled on every hosted runner and is invoked with the
+# automatically-provisioned `GITHUB_TOKEN`, which keeps this workflow's
+# action-pinning surface to the one shared `actions/checkout` already
+# audited in ci.yml/image.yml.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Extract this version's CHANGELOG section and detect prerelease
+        id: notes
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_REF_NAME}"
+
+          if [[ ! "$REF" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$REF' is not a valid vMAJOR.MINOR.PATCH[-prerelease] version."
+            exit 1
+          fi
+
+          VERSION="${REF#v}"
+          PRERELEASE="${BASH_REMATCH[4]:-}"
+
+          # CHANGELOG.md sections are headed "## [X.Y.Z] - YYYY-MM-DD".
+          # Extract the body between this version's heading and the next
+          # "## " heading (or end of file).
+          awk -v ver="## [${VERSION}]" '
+            $0 ~ ver { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            echo "::warning::No CHANGELOG.md section found for ${VERSION}; falling back to a generic note."
+            echo "See CHANGELOG.md and the image's attached SBOM/provenance for details." > release-notes.md
+          fi
+
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "Container image: \`ghcr.io/carmelosantana/craftkeeper:${REF}\` (also tagged \`:$(echo "$REF" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/v\1/')\`, \`:$(echo "$REF" | sed -E 's/^v([0-9]+)\..*/v\1/')\`$([ -z "$PRERELEASE" ] && echo ', `:latest`'))"
+            echo ""
+            echo "Verify the signature and provenance before deploying:"
+            echo ""
+            echo '```bash'
+            echo "cosign verify --certificate-identity-regexp 'https://github.com/carmelosantana/craftkeeper/.*' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  ghcr.io/carmelosantana/craftkeeper:${REF}"
+            echo '```'
+            echo ""
+            echo "SPDX and CycloneDX SBOMs and the SLSA build provenance are attached to the"
+            echo "manifest as Sigstore/Cosign attestations (see \`docs/operations/upgrades.md\`)."
+          } >> release-notes.md
+
+          if [ -z "$PRERELEASE" ]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE_FLAG: ${{ steps.notes.outputs.prerelease == 'true' && '--prerelease' || '' }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "CraftKeeper ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            $PRERELEASE_FLAG

@@ -4378,3 +4378,316 @@ relative luminance, no formula trusted from a prior pass or from
   four tones x both surfaces x both themes. Confirmed to fail when
   `ckChipStyle`'s fill is reverted to a non-zero percentage, then
   restored.
+
+## Task 21 — Documentation, CI/CD, Image Release, and V1 Acceptance
+
+**CI split into five jobs plus a static workflow audit, replacing the
+single-job `tests.yml`.** `.github/workflows/ci.yml` now runs `php`
+(Pest/PHPStan/Pint), `frontend` (Vitest/typecheck/build — Node only, no
+PHP setup needed since none of these touch the framework), `browser`
+(Playwright, reusing `playwright.config.ts`'s own `webServer` command
+which already handles `migrate:fresh`/`npm run build`/`serve`),
+`integration` (`docker-compose.integration.yml`'s existing 10-scenario
+stack), and `container` (`docker build` + `compose.example.yml` config
+validation + a grep-based assertion that neither the Dockerfile nor the
+compose file ever mentions `docker.sock`) — each independently
+actionable without the others' logs in the way. A sixth job, `zizmor`,
+statically audits every workflow file on every run (see below for why
+it couldn't also be run locally in this sandbox).
+
+**Every third-party action is pinned to a commit SHA resolved live from
+that action's own GitHub repository via the API** (`git/refs/tags/{tag}`,
+dereferencing the annotated-tag object to its underlying commit where
+needed) — not guessed, not copied from memory, not left as the mutable
+tag the brief's own example text used. All were re-verified against the
+actual final file with a script that fails loudly on anything not
+matching `^[0-9a-f]{40}$`. `shivammathur/setup-php`'s existing pin in the
+old `tests.yml` (`f3e473d1...`) turned out to already BE that action's
+current latest release (`2.37.2`) — reused as-is rather than
+re-resolved to a different SHA for no reason.
+
+**`actions/cache/restore`-only, with an explicit, conditionally-gated
+save — not "no save at all," and not the combined `actions/cache`
+action.** The brief's "no auto-save" instruction is implemented as: every
+job restores from a cache key, and a SEPARATE `actions/cache/save` step
+(same pinned action, its `/save` entry point) only runs when
+`github.event_name == 'push'` — i.e. code already on `main`. A
+`pull_request`-triggered run (which is exactly the trust boundary a fork
+PR crosses) can read the shared cache but can never write to it. A
+permanently-cold cache (never populated by anything) would have
+technically satisfied "no auto-save" even more literally, but would
+provide zero actual speedup ever — this gated-save version keeps the
+real security property (an untrusted PR run cannot poison what a later
+trusted run reads) while still letting a `main`-branch push refresh the
+cache for the PRs that follow it. Cached paths are dependency-download
+directories only (Composer's `~/.cache/composer/files`, npm's `~/.npm`,
+Playwright's `~/.cache/ms-playwright`) — never `vendor/`, `node_modules/`,
+or a built application; `npm ci`/`composer install` still re-verify every
+package's integrity against the lockfile regardless of what a cache
+happens to contain, so a hypothetically-poisoned cache entry still can't
+bypass the lockfile's own hash.
+
+**Every `${{ }}` template expression was audited out of every `run:`
+shell block, not just the obviously-attacker-controlled ones.** A
+mechanical pass (`python3` + `yaml.safe_load`, walking every job/step)
+found four spots in `image.yml` (`cosign sign`/`cosign attest` × 3, plus
+a "Summary" step) that interpolated a job output
+(`needs.build-and-push.outputs.image_ref`) directly into a `run:` script
+— not exploitable (the value is `env.IMAGE` + a `sha256:` digest this
+same job just produced, never third-party-controlled), but converted to
+job-level `env:` + `$IMAGE_REF` shell-variable references anyway, so the
+"never substitute `${{ }}` into a shell script" rule holds without a
+carved-out exception to remember later. `ci.yml` and `release.yml` had
+zero such occurrences from the start — `release.yml`'s tag-name handling
+in particular reads `$GITHUB_REF_NAME` (the runner-provided environment
+variable), never `${{ github.ref_name }}` textually substituted into the
+script.
+
+**`id-token: write` appears in exactly one job in this entire
+repository**: `image.yml`'s `sign-and-attest` (keyless Cosign signing +
+SPDX/CycloneDX attestation). `smoke-test` and `scan` (the other two jobs
+that consume `build-and-push`'s output) only ever need `packages: read`.
+Verified mechanically (`grep -n id-token .github/workflows/*.yml`) as
+part of self-review, not just asserted.
+
+**`latest` is withheld from a prerelease tag by an explicit, hand-written
+regex guard — not implicit action behavior.** `docker/metadata-action`
+does have its own `latest=auto` semver-prerelease heuristic, but this
+task deliberately does NOT depend on trusting a third-party action's
+internal parser for something the brief calls out as a hard requirement
+("Do NOT publish `latest` from a prerelease tag" — explicitly named as
+something to "implement and state this guard"). `image.yml`'s "Compute
+image tags and prerelease guard" step matches `github.ref_name` against
+`^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$` itself, builds the
+`v{major}.{minor}.{patch}` / `v{major}.{minor}` / `v{major}` tags
+unconditionally, and appends `:latest` only when the fourth capture group
+(the prerelease suffix) is empty — with an `::notice::`/`::error::`
+either way so the decision is visible in the run log, not just implicit.
+`docker/metadata-action` itself isn't used anywhere in this repository at
+all, for exactly this reason (one fewer thing whose internal logic has
+to be trusted rather than read).
+
+**zizmor could not be executed for real in this sandbox — reported
+honestly rather than faked.** The brief's own example invocation,
+`npx zizmor ...`, doesn't work: zizmor is a PyPI-distributed Rust binary,
+not an npm package (`npm view zizmor` / registry search confirms no such
+package exists). This sandbox has no `pip`/`pipx`/`cargo`/`uv` preinstalled
+(`python3 -m ensurepip` itself is missing — this Python was built without
+it) and no passwordless `sudo` (`sudo -n true` prompts for a password),
+so installing zizmor here would have meant either modifying system
+packages via `apt`+`sudo` or downloading and executing a third-party
+binary/container image outside any package-manager-mediated,
+lockfile-verified path — both declined per this session's own safety
+rules around unattended system changes and untrusted downloads, absent a
+live user to confirm either. What WAS done instead, so this isn't just
+an unverified claim either way:
+1. Every workflow file parses cleanly with `yaml.safe_load` (a real
+   syntax check, not assumed).
+2. A manual, rule-by-rule audit against zizmor's actual published rule
+   set: `pull_request_target` (absent — confirmed by `grep`, matches
+   only appear inside comments explaining its absence); unpinned actions
+   (zero — every `uses:` verified against a `^[0-9a-f]{40}$` regex);
+   `actions/cache` vs `/restore`+`/save` (only the sub-paths are used,
+   confirmed by grep); `id-token: write` scope (exactly one job,
+   confirmed by grep); template injection in `run:` blocks (zero,
+   confirmed by the AST-walking script described above);
+   `persist-credentials: false` on every `actions/checkout` (confirmed
+   — this is `zizmor`'s "artipacked" rule); no reusable/called workflows
+   at all (so `secrets: inherit` concerns don't apply).
+3. `ci.yml`'s own `zizmor` job runs the REAL tool
+   (`pipx run zizmor==1.27.0 .github/workflows/`, pinned to an exact
+   PyPI release rather than floating) — `pipx` ships preinstalled on
+   GitHub-hosted `ubuntu-latest` runners, which have real internet
+   access this sandbox's package managers didn't. The very first real
+   push of this branch's CI is therefore the actual, no-caveats zizmor
+   verification the brief asks for — this document does not claim that
+   run has already happened, only that the job exists and will run it.
+
+**Multi-arch `docker buildx build --platform linux/amd64,linux/arm64
+--provenance=true --sbom=true .` was attempted for real, not assumed.**
+`linux/amd64` alone (`--platform linux/amd64 --provenance=true
+--sbom=true --load`) built and exported cleanly, including a real
+BuildKit SBOM-attestation step
+(`docker.io/docker/buildkit-syft-scanner:stable-1`) and an attestation
+manifest in the final image — proof the Dockerfile and the
+provenance/SBOM mechanism both work correctly, independent of the arm64
+question. Adding `linux/arm64` to the same invocation failed partway
+through the `arm64` build stage's `apt-get` step with `exec format
+error` — this sandbox's Docker daemon does not have QEMU user-mode
+emulation (`binfmt_misc`) registered for `arm64`, so BuildKit can start
+an emulated `arm64` container but the emulated interpreter itself can't
+execute an `arm64` ELF. Registering that (`docker run --privileged
+tonistiigi/binfmt --install arm64` or equivalent) requires a privileged
+container touching this shared host's kernel `binfmt_misc` table — not
+something this task performs without a live user's explicit go-ahead,
+consistent with this session's own guardrails around system-level
+changes on shared infrastructure. `image.yml`'s own `build-and-push` job
+is unaffected: `docker/setup-qemu-action` on a real GitHub-hosted runner
+registers this correctly (confirmed by that action's own widespread,
+documented use for exactly this purpose across the ecosystem) — the
+limitation is this local sandbox, not the workflow definition. Both test
+images this produced (`craftkeeper:amd64-test`; the failed
+`craftkeeper:multiarch-test` invocation produced no image to clean up)
+were removed by exact name afterward — no other image on this shared
+host was touched.
+
+**`npm run lint:check`/`format:check` added to `ci.yml`'s `frontend` job
+as `continue-on-error: true`, not as hard gates.** Running them for real
+during this task surfaced pre-existing debt across ~44–50 files this
+task's own scope (`.github`, docs, root markdown) never touches — 567
+ESLint errors, mostly `@stylistic/padding-line-between-statements` in
+`tests/e2e/*.spec.ts` files, plus Prettier formatting drift across
+several `resources/js/pages/**` files. This mirrors Task 17's own
+documented precedent (`npm run lint:check` run there "as an extra sanity
+check, not a mandated gate," reporting the same class of pre-existing
+debt in files that task never touched either) — the debt predates this
+task and fixing it would mean touching dozens of unrelated files inside
+a commit whose own scope is documentation and CI/CD, violating this
+project's own "one reviewable commit per task" constraint. Making the
+steps `continue-on-error: true` keeps the signal visible in every CI run
+(so the debt doesn't silently grow further unnoticed) without blocking
+merges on it. A future, dedicated lint-cleanup task can drop that flag
+once the debt is paid down.
+
+**Global Constraint traceability (`docs/operations/v1-acceptance.md`,
+new) maps all 26 Global Constraints to a named test or a documented
+operator behavior — including four disclosed gaps rather than
+overclaiming coverage that doesn't exist:** the product tagline has no
+dedicated in-app assertion (documentation-only fact); the four accent
+themes have no per-accent automated axe/contrast test yet (already
+known from `docs/operations/test-matrix.md`); no live-DOM
+`font-family` computed-style assertion existed in the automated suite
+prior to this task (see the live spot-check below, which closes part of
+this gap for Hanken Grotesk specifically, but does not add a permanent
+automated test for it); and the exact 480px breakpoint plus the
+1160px/236px pixel values were, prior to this task, verified only by
+source inspection rather than a dedicated computed-style test.
+
+**Design acceptance (Step 5) — method stated honestly, per this task's
+own ambiguity resolution.** A full systematic pass comparing all
+fourteen `Design/*.dc.html` mockups against every named route at
+1440×1000/768×1024/390×844 — pixel-level token/typography/hierarchy
+comparison, diff/approval-flow walkthroughs, bottom-sheet and
+table-to-card behavior on every applicable page, full keyboard-only
+traversal, 200% zoom, and reduced-motion verification across the WHOLE
+route set — was **not** completed in this task and is **not** claimed as
+signed off. What was actually done:
+
+1. **The pre-existing automated suite is the primary evidence, and it
+   ran for real** (see "Gates, run for real" below): `tests/e2e/
+   design-system.spec.ts` and the rest of the 49-test e2e suite already
+   axe-scan (dark AND light), viewport-check (all three breakpoints,
+   no-horizontal-scroll), keyboard-focus, and hand-computed-then-guarded
+   contrast across many (not all) of the named routes — this is
+   pre-existing coverage from Tasks 3/9/12/19/20, re-run and re-confirmed
+   passing as part of this task's own gates, not newly built here.
+2. **A live spot-check beyond the existing suite**, against a real
+   running instance (`php artisan serve`, logged in as the one seeded
+   admin), using DOM/computed-style queries rather than pixel
+   screenshots — this session's screenshot capture tool was not
+   returning results (repeated timeouts across several retries; every
+   non-screenshot browser action — navigation, click, type,
+   `getComputedStyle` — worked normally), so visual/pixel comparison
+   against the mockups was not possible here regardless of scope
+   chosen. What the live DOM checks confirmed, with real numbers:
+   - `data-theme="dark"`, `data-accent="terracotta"` on `<html>` by
+     default (Global Constraint 21).
+   - The sidebar `<nav>` computed width is exactly `236px` and `<main>`'s
+     computed width is exactly `1160px` at 1440×1000 (Global Constraint
+     23) — previously only verified by source inspection per
+     `v1-acceptance.md`'s own disclosed-gap note; now also confirmed
+     live.
+   - `getComputedStyle(document.body).fontFamily` resolves to
+     `"Hanken Grotesk", ui-sans-serif, system-ui, ...` (Global Constraint
+     22) — same caveat: confirmed live this once, not wired into an
+     automated regression test.
+   - At 768px, the sidebar `<nav>` is not visible and there is no
+     horizontal scroll; at 390px, no horizontal scroll and a working
+     skip-to-content link — consistent with the 1024px sidebar/mobile-header
+     breakpoint and the "no hidden horizontal scroll at any breakpoint"
+     requirement.
+   - The primary navigation's eight items, in order, exactly match the
+     plan's `primaryNavigation` contract (Overview, Server,
+     Configurations, Plugins, Assistant, Activity, Integrations,
+     Settings).
+   - Two genuine empty/degraded states were observed directly (not
+     mocked): `/overview` with no RCON/Minecraft root configured shows
+     "Unavailable" with a stated reason for RCON and server logs, never
+     a fabricated zero or empty chart; `/configurations` with zero
+     discovered files shows an accessible (`role="status"`) empty state
+     with an explanation, not a blank table.
+   - `resources/css/app.css`'s `@media (prefers-reduced-motion: reduce)`
+     block exists (confirmed by direct file inspection) but has zero
+     matches for "reduced-motion" anywhere in `tests/e2e/` — reduced
+     motion is implemented, not automated-tested, and this session's
+     browser tool exposed no media-feature-emulation action to verify it
+     live either. Recorded as a gap, not silently left off this list.
+3. **Accepted design deviations**: this task's own spot-check did not
+   surface a NEW mockup-vs-implementation conflict requiring a fresh
+   deviation entry — the accepted deviations already on record (the CSP's
+   `style-src 'unsafe-inline'` relaxation for Sonner/Radix, Task 19's
+   Settings-section layout-convention split, and the chip-tint/contrast
+   corrections in the "Task 20 fix pass" section above) remain the
+   complete set as of this task. If a human reviewer's later, full
+   mockup-by-mockup comparison finds a genuine new deviation, it belongs
+   here, in this same dated-section format.
+
+**What still needs a human**, stated plainly rather than signed off on
+this task's behalf: pixel-level visual comparison of each of the
+fourteen `Design/*.dc.html` mockups against the live application (this
+task's browser session could drive the app but not reliably capture a
+screenshot to compare); a full keyboard-only traversal of every
+approval/diff/bottom-sheet flow; verification at 200% browser zoom;
+per-accent (emerald/slate/bronze, beyond the terracotta default checked
+above) visual and contrast review; and reduced-motion behavior observed
+in a real browser with the OS/browser preference actually set (not just
+confirmed present in the CSS source).
+
+**Operator documentation** — `docs/installation/{dokploy,docker-compose}.md`
+and `docs/operations/{rcon,recovery,upgrades,api-and-mcp,v1-acceptance}.md`
+(new). Every topic the brief's Step 3 names is covered, including the
+absence of Docker control (stated explicitly and repeatedly — in
+`README.md`, both installation docs, and `SECURITY.md`'s scope section —
+not just implied by omission). `docs/operations/api-and-mcp.md` is an
+addition beyond the brief's literal file list, same as
+`v1-acceptance.md`: neither is individually named in Task 21's file
+list, but the brief's own ambiguity resolutions (#4's full topic
+enumeration explicitly including "API tokens, MCP OAuth grants"; #5's
+explicit "this is a real deliverable" instruction for Global Constraint
+traceability) require content that didn't fit naturally into
+`rcon.md`/`recovery.md`/`upgrades.md` without stretching them into
+unrelated territory.
+
+**Known limitations surfaced, not buried** — collected in `CHANGELOG.md`'s
+"Known limitations" section (linked from `README.md`'s documentation
+index) rather than left scattered only across individual `decisions.md`
+entries: value-based-only secret redaction, the log-rotation race
+window, verbatim console broadcast, plugin install/update being
+web-UI-only, no self-service restore UI, Chromium-only e2e, no
+per-accent e2e coverage, AI provider 401/429/timeout not distinguished,
+and Hangar/Modrinth being fixture-verified rather than live-verified in
+this repository's own CI.
+
+**Gates, run for real:** `git diff --check` (clean). `composer test`
+(881 tests — 870 passed, 11 skipped [10 pre-existing + the opt-in
+Legendary smoke], 0 failures; PHPStan level 7 clean; Pint clean). `npm
+run test` (14/14). `npm run typecheck` (clean). `npm run build`
+(succeeds). `npm run e2e` (49/49 — the 48 pre-existing plus one added
+since Task 20, all passing). `docker buildx build --platform
+linux/amd64 --provenance=true --sbom=true --load .` (succeeds, real SBOM
+attestation produced); the same command with `linux/arm64` added fails
+in this sandbox specifically with `exec format error` (QEMU/binfmt not
+registered here — see above). `zizmor` was NOT run as the literal
+`npx zizmor` command in this sandbox (impossible here — see above); the
+equivalent manual audit found no issue matching any of zizmor's
+published rules, and the real tool now runs as `ci.yml`'s own `zizmor`
+job on every future push/PR.
+
+**Concerns for follow-up, out of this task's scope**: a real, credentialed
+`v*` tag push (which would exercise `image.yml`/`release.yml` for real —
+build, scan, sign, attest, publish, and create the GitHub Release) has
+not happened and cannot happen from this sandbox; the pre-existing
+lint/format debt made `continue-on-error` rather than fixed; the design
+acceptance gaps listed above needing a human; and the same follow-ups
+Task 20 already recorded (Firefox/WebKit Playwright projects, per-accent
+e2e, AI provider 401/429/timeout distinction) remain open.
