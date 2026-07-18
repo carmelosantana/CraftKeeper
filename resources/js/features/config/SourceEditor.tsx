@@ -74,7 +74,13 @@ export function SourceEditor({
                     ref={gutterRef}
                     aria-hidden="true"
                     className="select-none overflow-hidden px-[10px] py-[12px] text-right font-mono text-[12px] leading-[1.6]"
-                    style={{ color: 'var(--ck-text-3)' }}
+                    // Task 20 fix pass: this sits directly on --ck-bg (the
+                    // sunken editor well's own background, not a
+                    // --ck-surface/--ck-elevated card), where --ck-text-3
+                    // measures only 4.15:1 in light theme — under the
+                    // 4.5:1 AA floor. --ck-text-2 clears AA against
+                    // --ck-bg in both themes (5.98:1 light, 7.99:1 dark).
+                    style={{ color: 'var(--ck-text-2)' }}
                 >
                     {Array.from({ length: lineCount }, (_, index) => (
                         <div key={index}>{index + 1}</div>

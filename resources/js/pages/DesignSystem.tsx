@@ -136,7 +136,16 @@ function SectionHeading({
         <div className="mb-[22px]">
             <div
                 className="font-mono text-[11px] font-semibold tracking-[0.12em] uppercase"
-                style={{ color: 'var(--ck-accent)' }}
+                // Task 20 fix pass: was `--ck-accent` directly on this
+                // page's ambient `--ck-bg` (every <section> here is bare,
+                // uncarded) — 4.17:1 in light theme, under the 4.5:1 AA
+                // floor (axe never scanned this page in light theme
+                // until Task 20's fix pass added that scan, which is
+                // exactly how this went unnoticed). `--ck-text-2` clears
+                // AA against `--ck-bg` in both themes (5.98:1 light,
+                // 7.99:1 dark) and this is the only place this
+                // page-local SectionHeading draws its eyebrow color from.
+                style={{ color: 'var(--ck-text-2)' }}
             >
                 {eyebrow}
             </div>
@@ -653,7 +662,25 @@ function DesignSystemContent() {
                 >
                     StatusBadge — every documented state
                 </div>
-                <div className="flex flex-wrap gap-[9px]">
+                {/* Task 20 fix pass: this used to render bare on this
+                    page's ambient --ck-bg — not one of the two surfaces
+                    (`--ck-surface`, `--ck-elevated`) StatusBadge's chip
+                    fill is actually contrast-verified against (see
+                    ck-tokens.ts's ckChipStyle docblock), and not how any
+                    real page uses it either (Overview/Integrations/
+                    server cards all wrap it in a --ck-surface card).
+                    Wrapping this demo the same way both fixes a real
+                    light-theme AA failure (success/warning/danger chips
+                    at 3.9-4.5:1 against bare --ck-bg) and makes the
+                    gallery honest about the context these chips are
+                    actually designed for. */}
+                <div
+                    className="flex flex-wrap gap-[9px] rounded-[9px] border p-[14px]"
+                    style={{
+                        backgroundColor: 'var(--ck-surface)',
+                        borderColor: 'var(--ck-border)',
+                    }}
+                >
                     {ALL_STATUSES.map((status) => (
                         <StatusBadge key={status} status={status} />
                     ))}
@@ -677,12 +704,96 @@ function DesignSystemContent() {
                 >
                     RestartRequired
                 </div>
-                <div className="flex flex-wrap items-start gap-[14px]">
+                {/* Task 20 fix pass: matches the chip's other real card
+                    context (plugins/Upload.tsx wraps its RestartRequired
+                    chip in --ck-elevated). AppShell.tsx's header ALSO
+                    renders this exact chip bare on --ck-bg (no card) —
+                    that's a real, intentional usage too, which is why
+                    every light-theme tone was darkened enough to clear
+                    --ck-bg as well as --ck-surface/--ck-elevated (see
+                    ck-tokens.ts's ckChipStyle docblock) rather than
+                    "fixing" it by insisting a card wrapper is always
+                    required. The banner variant already draws its own
+                    surface via ckSubtleSurfaceStyle, so only the chip
+                    needed a wrapper here. */}
+                <div
+                    className="flex flex-wrap items-start gap-[14px] rounded-[9px] border p-[14px]"
+                    style={{
+                        backgroundColor: 'var(--ck-surface)',
+                        borderColor: 'var(--ck-border)',
+                    }}
+                >
                     <RestartRequired variant="chip" />
                     <RestartRequired
                         variant="banner"
                         className="max-w-[380px]"
                     />
+                </div>
+
+                {/* Task 20 fix pass: a dedicated fixture for
+                    tests/e2e/design-system.spec.ts's chip-contrast guard.
+                    Real StatusBadge/RestartRequired components (not a
+                    hand-rolled re-implementation of ckChipStyle's color
+                    math) rendered on all three real backgrounds a chip
+                    actually sits on in this app (--ck-surface, e.g.
+                    Overview/Integrations/server cards; --ck-elevated,
+                    e.g. plugins/Upload.tsx's RestartRequired chip;
+                    --ck-bg, e.g. AppShell.tsx's header RestartRequired
+                    chip) — the test reads getComputedStyle() off these
+                    live elements so a regression in the token/fill math
+                    fails it. One representative status per tone: online
+                    (success), degraded (warning), offline (danger),
+                    in-progress (info). */}
+                <div
+                    className="mt-[24px] mb-[10px] text-[12px] font-semibold"
+                    style={{ color: 'var(--ck-text-2)' }}
+                >
+                    Chip contrast fixture — every tone on all three real
+                    chip surfaces
+                </div>
+                <div className="grid gap-[14px] sm:grid-cols-3">
+                    <div
+                        data-test="chip-contrast-bg"
+                        className="flex flex-wrap items-start gap-[9px] rounded-[9px] border p-[14px]"
+                        style={{
+                            backgroundColor: 'var(--ck-bg)',
+                            borderColor: 'var(--ck-border)',
+                        }}
+                    >
+                        <StatusBadge status="online" />
+                        <StatusBadge status="degraded" />
+                        <StatusBadge status="offline" />
+                        <StatusBadge status="in-progress" />
+                        <RestartRequired variant="chip" />
+                    </div>
+                    <div
+                        data-test="chip-contrast-surface"
+                        className="flex flex-wrap items-start gap-[9px] rounded-[9px] border p-[14px]"
+                        style={{
+                            backgroundColor: 'var(--ck-surface)',
+                            borderColor: 'var(--ck-border)',
+                        }}
+                    >
+                        <StatusBadge status="online" />
+                        <StatusBadge status="degraded" />
+                        <StatusBadge status="offline" />
+                        <StatusBadge status="in-progress" />
+                        <RestartRequired variant="chip" />
+                    </div>
+                    <div
+                        data-test="chip-contrast-elevated"
+                        className="flex flex-wrap items-start gap-[9px] rounded-[9px] border p-[14px]"
+                        style={{
+                            backgroundColor: 'var(--ck-elevated)',
+                            borderColor: 'var(--ck-border)',
+                        }}
+                    >
+                        <StatusBadge status="online" />
+                        <StatusBadge status="degraded" />
+                        <StatusBadge status="offline" />
+                        <StatusBadge status="in-progress" />
+                        <RestartRequired variant="chip" />
+                    </div>
                 </div>
             </section>
 

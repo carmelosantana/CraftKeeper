@@ -12,7 +12,10 @@
  *   1. Discovery       — GET /configurations lists server.properties.
  *   2. Config apply     — source-mode propose + approve a real change,
  *                         verify it landed on disk.
- *   3. Config restore   — restore the immediately-prior revision.
+ *   3. Config restore   — a second, distinct edit (guaranteeing >= 2
+ *                         revisions), then propose + APPROVE a restore
+ *                         to the first edit's revision, verifying the
+ *                         second edit's content is genuinely gone.
  *   4. Live console      — a real RCON `list` executed directly through
  *                         the web console (no approval needed for a
  *                         CommandPolicy-classified-Safe command).
@@ -26,8 +29,9 @@
  *                         change via `propose_config_change`.
  *   8. Optional-service outage — RCON pointed at an unreachable port
  *                         still lets /up and the server page respond.
- *   9. Restart-required state — a restart-impacting config change flips
- *                         the "restart required" flag.
+ *   9. Restart-required state — propose + APPROVE a restart-impacting
+ *                         config change, assert the actual pendingRestart
+ *                         flag (not a substring match) flips true.
  *  10. Backup/restore    — create a backup, list it, download it, verify
  *                         it is a real, non-empty ZIP.
  *
@@ -269,29 +273,84 @@ try {
     assertTrue(str_contains($props['source']['contents'], 'CraftKeeper Integration Stack (edited)'), 'applied config change did not land on disk');
     say('[2/10] config propose+apply: OK — change landed on disk.');
 
-    // --- 3. Restore ---
+    // --- 2b. A second, distinct config edit — restoring needs >= 2
+    // revisions to restore BETWEEN (a single edit could only ever
+    // "restore" back to the pre-edit baseline). Same source-mode
+    // propose+approve dance as step 2, against the file's now-current
+    // state. ---
+    $step = '2b-config-second-edit';
+    $r = request('GET', "{$baseUrl}/configurations/server.properties", $cookieJar);
+    assertTrue($r['status'] === 200, 'GET config editor (2nd edit) failed');
+    $props = inertiaPropsFromHtml($r['body']);
+    $secondBaseSha256 = $props['file']['baseSha256'];
+    $secondBaseSource = $props['source']['contents'];
+    assertTrue(str_contains($secondBaseSource, 'motd=CraftKeeper Integration Stack (edited)'), 'expected the first edit on disk before applying a second');
+    $secondNewSource = str_replace('motd=CraftKeeper Integration Stack (edited)', 'motd=CraftKeeper Integration Stack (edited twice)', $secondBaseSource);
+    $token = xsrfToken($cookieJar);
+    $r = request('POST', "{$baseUrl}/configurations/server.properties", $cookieJar, ['X-XSRF-TOKEN' => $token], http_build_query([
+        'mode' => 'source',
+        'base_sha256' => $secondBaseSha256,
+        'base_source' => $secondBaseSource,
+        'source' => $secondNewSource,
+    ]));
+    assertTrue($r['status'] === 200, "second config propose failed: HTTP {$r['status']}");
+    $secondProposeProps = inertiaPropsFromHtml($r['body']);
+    $secondPendingOperation = $secondProposeProps['proposal']['operationId'] ?? null;
+    assertTrue($secondPendingOperation !== null, 'second config propose did not return an operationId');
+    $token = xsrfToken($cookieJar);
+    $r = request('POST', "{$baseUrl}/configurations/operations/{$secondPendingOperation}/approve", $cookieJar, ['X-XSRF-TOKEN' => $token]);
+    assertTrue(in_array($r['status'], [200, 302], true), "second config approve failed: HTTP {$r['status']}");
+
+    $r = request('GET', "{$baseUrl}/configurations/server.properties", $cookieJar);
+    $props = inertiaPropsFromHtml($r['body']);
+    assertTrue(str_contains($props['source']['contents'], 'CraftKeeper Integration Stack (edited twice)'), 'second config edit did not land on disk');
+    say('[2b/10] config second edit: OK — two distinct revisions now on file.');
+
+    // --- 3. Restore — the two edits above guarantee >= 2 revisions, so
+    // this can no longer silently no-op. Restores to the FIRST edit's
+    // revision (undoing only the second edit), then — since
+    // App\Config\ConfigRevisionService::restore()'s own docblock is
+    // explicit that restoring "never applies without the same
+    // approve/cancel step every other change goes through" — actually
+    // APPROVES the resulting restore proposal (the prior version of this
+    // scenario stopped at the propose-only 302 and never did), then
+    // re-reads the file to assert the content genuinely reverted. ---
     $step = '3-config-restore';
     $historyUrl = $props['historyUrl'] ?? null;
-    if ($historyUrl !== null) {
-        $r = request('GET', "{$baseUrl}{$historyUrl}", $cookieJar);
-        if ($r['status'] === 200) {
-            $historyProps = inertiaPropsFromHtml($r['body']);
-            $revisions = $historyProps['revisions'] ?? [];
-            if (count($revisions) >= 2) {
-                $priorRevisionId = $revisions[1]['id'];
-                $token = xsrfToken($cookieJar);
-                $r = request('POST', "{$baseUrl}/configurations/revisions/{$priorRevisionId}/restore", $cookieJar, ['X-XSRF-TOKEN' => $token]);
-                assertTrue(in_array($r['status'], [200, 302], true), "restore failed: HTTP {$r['status']}");
-                say('[3/10] config restore: OK.');
-            } else {
-                say('[3/10] config restore: SKIPPED (fewer than 2 revisions on file).');
-            }
-        } else {
-            say('[3/10] config restore: SKIPPED (history page unavailable).');
-        }
-    } else {
-        say('[3/10] config restore: SKIPPED (no historyUrl in props).');
-    }
+    assertTrue($historyUrl !== null, 'no historyUrl in config editor props');
+
+    $r = request('GET', "{$baseUrl}{$historyUrl}", $cookieJar);
+    assertTrue($r['status'] === 200, "history page failed: HTTP {$r['status']}");
+    $historyProps = inertiaPropsFromHtml($r['body']);
+    $revisions = $historyProps['revisions'] ?? [];
+    assertTrue(count($revisions) >= 2, 'expected >= 2 revisions after two distinct edits, got '.count($revisions));
+
+    $priorRevisionId = $revisions[1]['id'];
+    $token = xsrfToken($cookieJar);
+    $r = request('POST', "{$baseUrl}/configurations/revisions/{$priorRevisionId}/restore", $cookieJar, ['X-XSRF-TOKEN' => $token]);
+    assertTrue($r['status'] === 302, "restore propose failed: HTTP {$r['status']}");
+    $restoreLocation = $r['headers']['location'] ?? '';
+    // Operation ids are ULIDs (e.g. "019f762c-180b-707d-91bb-2a018ee18490"),
+    // not plain integers — `[^&]+` (matching scenario 5's plugin-operation
+    // extraction below) captures the whole token; an earlier version of
+    // this regex used `(\d+)`, which silently truncated at the ULID's
+    // first hyphen and 404'd the subsequent approve call.
+    assertTrue((bool) preg_match('/[?&]operation=([^&]+)/', $restoreLocation, $m), "restore redirect did not carry an operation id: {$restoreLocation}");
+    $restoreOperationId = $m[1];
+
+    $token = xsrfToken($cookieJar);
+    $r = request('POST', "{$baseUrl}/configurations/operations/{$restoreOperationId}/approve", $cookieJar, ['X-XSRF-TOKEN' => $token]);
+    assertTrue(in_array($r['status'], [200, 302], true), "restore approve failed: HTTP {$r['status']}");
+
+    $r = request('GET', "{$baseUrl}/configurations/server.properties", $cookieJar);
+    assertTrue($r['status'] === 200, 'GET config editor after restore failed');
+    $props = inertiaPropsFromHtml($r['body']);
+    assertTrue(
+        str_contains($props['source']['contents'], 'motd=CraftKeeper Integration Stack (edited)')
+            && ! str_contains($props['source']['contents'], '(edited twice)'),
+        'restore did not actually revert the second edit — content: '.substr($props['source']['contents'], 0, 300),
+    );
+    say('[3/10] config restore: OK — approved restore reverted "(edited twice)" back to "(edited)", verified on disk.');
 
     // --- Mint a real MCP bearer token for scenarios 4 and 7, via the
     // SAME real authorization-code + PKCE flow a production MCP client
@@ -531,6 +590,7 @@ try {
     // --- 9. Restart-required state ---
     $step = '9-restart-required';
     $r = request('GET', "{$baseUrl}/configurations/server.properties", $cookieJar);
+    assertTrue($r['status'] === 200, 'GET config editor (restart-required case) failed');
     $props = inertiaPropsFromHtml($r['body']);
     $baseSha256 = $props['file']['baseSha256'];
     $baseSource = $props['source']['contents'];
@@ -539,24 +599,39 @@ try {
     // (resources/schemas/config/server-properties.json) — an ACTUAL
     // value change (a comment-only addition produces no parsed node
     // diff at all — see the identical note on scenario 2 above) to it
-    // is what should flip the restart-required flag.
+    // is what should flip the restart-required flag. That flag
+    // (App\Http\Controllers\OverviewController::pendingRestart()) only
+    // considers operations with status=Succeeded, so the change must
+    // actually be proposed AND APPROVED — the prior version of this
+    // scenario POSTed the propose request and discarded the response
+    // without ever approving, so the flag could never legitimately have
+    // flipped.
     assertTrue(str_contains($baseSource, 'rcon.port=25575'), 'expected rcon.port=25575 in current source');
     $token = xsrfToken($cookieJar);
-    request('POST', "{$baseUrl}/configurations/server.properties", $cookieJar, ['X-XSRF-TOKEN' => $token], http_build_query([
+    $r = request('POST', "{$baseUrl}/configurations/server.properties", $cookieJar, ['X-XSRF-TOKEN' => $token], http_build_query([
         'mode' => 'source',
         'base_sha256' => $baseSha256,
         'base_source' => $baseSource,
         'source' => str_replace('rcon.port=25575', 'rcon.port=25580', $baseSource),
     ]));
+    assertTrue($r['status'] === 200, "restart-impacting config propose failed: HTTP {$r['status']}");
+    $restartProposeProps = inertiaPropsFromHtml($r['body']);
+    $restartOperationId = $restartProposeProps['proposal']['operationId'] ?? null;
+    assertTrue($restartOperationId !== null, 'restart-impacting config propose did not return an operationId');
 
+    $token = xsrfToken($cookieJar);
+    $r = request('POST', "{$baseUrl}/configurations/operations/{$restartOperationId}/approve", $cookieJar, ['X-XSRF-TOKEN' => $token]);
+    assertTrue(in_array($r['status'], [200, 302], true), "restart-impacting config approve failed: HTTP {$r['status']}");
+
+    // Assert the actual documented flag, not a substring match anywhere
+    // in the props JSON (which could trivially false-positive/negative
+    // on unrelated text elsewhere on the page).
     $r = request('GET', "{$baseUrl}/overview", $cookieJar);
+    assertTrue($r['status'] === 200, 'GET /overview (restart-required case) failed');
     $overviewProps = inertiaPropsFromHtml($r['body']);
-    $overviewJson = json_encode($overviewProps);
-    if (str_contains(strtolower($overviewJson), 'restart')) {
-        say('[9/10] restart-required state: OK — surfaced on the Overview page.');
-    } else {
-        say('[9/10] restart-required state: SKIPPED (this edit did not flag a restart — not every field does).');
-    }
+    assertTrue(array_key_exists('pendingRestart', $overviewProps), 'Overview props did not include a pendingRestart key: '.json_encode(array_keys($overviewProps)));
+    assertTrue($overviewProps['pendingRestart'] === true, 'pendingRestart flag was not true after approving a restart-impacting config change: '.json_encode($overviewProps['pendingRestart']));
+    say('[9/10] restart-required state: OK — pendingRestart flag is true after an approved restart-impacting change.');
 
     // --- 10. Backup / restore ---
     $step = '10-backup';

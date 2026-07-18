@@ -230,21 +230,25 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
 }
 
 /**
- * A safe fallback for call sites whose background isn't one of
- * `StatusBadge`'s chip fill's contrast-verified surfaces. Historically
- * (Tasks 3/9/12), `ckChipStyle`'s ~15% tint measured ~4.3:1 for the
- * "danger" tone (offline/failed/rolled-back) against `--ck-surface` —
- * under the 4.5:1 AA threshold, because a HIGHER tint paradoxically
- * REDUCES contrast against same-colored text (it moves the background
- * toward the text's own color). Task 20 fixed this at the token source
- * (`ckChipStyle` now mixes 5%, not 15% — see that function's own
- * docblock in resources/js/lib/ck-tokens.ts) rather than here, so
- * `StatusBadge`'s chip fill itself now clears AA for every tone this app
- * uses. `StatusText` remains available as a plain, chip-free fallback for
- * call sites that want one — `AppShell.tsx`'s `ServerIdentityCard` and
- * `resources/js/features/config/DiffReview.tsx`'s risk indicator still
- * use it — but it is no longer required for AA on `StatusBadge`'s own
- * account. See docs/architecture/decisions.md (Tasks 3/9/12/20).
+ * A safe fallback for call sites that want a chip-free status indicator.
+ * Historically (Tasks 3/9/12), `ckChipStyle`'s ~15% tint measured ~4.3:1
+ * for the "danger" tone (offline/failed/rolled-back) against
+ * `--ck-surface` — under the 4.5:1 AA threshold, because a HIGHER tint
+ * paradoxically REDUCES contrast against same-colored text (it moves the
+ * background toward the text's own color). Task 20's first pass lowered
+ * the fill to 5%, which turned out to still fail AA in several other
+ * tone/surface/theme combinations (see ck-tokens.ts's `ckChipStyle`
+ * docblock and docs/architecture/decisions.md's Task 20 fix-pass entry
+ * for the full recomputed table) — the actual fix drops the chip fill to
+ * 0% (`background: transparent`, relying on the tone-colored border) and
+ * darkens `--ck-success`/`--ck-warning` in the light theme
+ * (resources/css/app.css). `StatusBadge`'s chip now clears AA (>= 4.60:1)
+ * for every tone against both `--ck-surface` and `--ck-elevated`, in
+ * both themes. `StatusText` remains available as a plain fallback for
+ * call sites that prefer one on other grounds — `AppShell.tsx`'s
+ * `ServerIdentityCard` and `resources/js/features/config/DiffReview.tsx`'s
+ * risk indicator use it for layout-density reasons, not because the chip
+ * fails AA there. See docs/architecture/decisions.md (Tasks 3/9/12/20).
  */
 export function StatusText({ status, label, className }: StatusBadgeProps) {
     const meta = STATUS_BADGE_META[status];

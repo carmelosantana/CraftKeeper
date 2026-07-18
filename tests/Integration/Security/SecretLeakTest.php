@@ -3,9 +3,12 @@
 use App\Ai\AiManager;
 use App\Ai\AssistantService;
 use App\Ai\ContextRequest;
+use App\Console\CommandPolicy;
+use App\Events\ConsoleEntryReceived;
 use App\Events\OperationUpdated;
 use App\Models\AiConversation;
 use App\Models\AiProviderConfiguration;
+use App\Models\ConsoleEntry;
 use App\Models\McpAuditEvent;
 use App\Models\McpGrant;
 use App\Models\Operation;
@@ -141,6 +144,65 @@ it('never broadcasts a secret canary — OperationUpdated is a strict scalar all
     $payload = OperationUpdated::fromOperation($operation)->broadcastWith();
 
     expect(json_encode($payload))->not->toContain($this->secretCanary);
+});
+
+/**
+ * Task 20 fix pass: the test above only proves OperationUpdated (a
+ * strict scalar allow-list, STRUCTURALLY INCAPABLE of carrying a
+ * secret) can't leak — it says nothing about App\Events\
+ * ConsoleEntryReceived on the private `server.console` channel, which
+ * is the ONE broadcast channel that actually carries free-form text
+ * (App\Server\LogTailService tails the Minecraft server's own log
+ * output verbatim, by design — see that event's own docblock). This
+ * test encodes the real, documented round-trip explicitly instead of
+ * leaving it implied: an admin runs a command containing a secret-
+ * shaped string through CraftKeeper's own console; Paper echoes that
+ * command back into its own latest.log; LogTailService tails the line
+ * and ConsoleEntryReceived broadcasts it VERBATIM on the admin-only
+ * private channel (this is accepted behavior, not a leak — CraftKeeper
+ * never redacts the Minecraft server's own log content); the SAME
+ * string, when it also passes through App\Console\CommandPolicy on its
+ * way to being persisted for the AUDIT trail, IS redacted there. Both
+ * halves of that asymmetry are asserted, and CraftKeeper's OWN
+ * configured secrets (canary 1 — the thing nothing in this app ever
+ * writes into a console line) are asserted absent regardless.
+ */
+it('broadcasts the Minecraft server\'s own console text verbatim on server.console (documented, not a leak) while CommandPolicy still redacts the same string for the audit trail', function () {
+    $consoleCanary = 'CANARY-CONSOLE-'.str()->random(24);
+    $echoedCommand = "login {$consoleCanary}";
+
+    // A real ConsoleEntry, exactly as App\Server\LogTailService would
+    // persist one after tailing a new line out of the Minecraft
+    // server's latest.log — here, Paper's own echo of an admin-run
+    // command containing a secret-shaped argument.
+    $entry = ConsoleEntry::create([
+        'line' => "[12:00:00] [Server thread/INFO]: [CraftKeeper] {$echoedCommand}",
+        'occurred_at' => now(),
+    ]);
+
+    $payload = ConsoleEntryReceived::fromEntry($entry)->broadcastWith();
+
+    // Documented, accepted behavior: the raw console line — including
+    // whatever an admin typed — reaches this admin-only private
+    // channel verbatim. This is the opposite assertion from every
+    // other test in this file on purpose: it proves the DOCUMENTED
+    // shape of the round-trip actually holds, not just that nothing
+    // leaks.
+    expect($payload['line'])->toContain($consoleCanary);
+
+    // Contrast: the SAME secret-shaped string IS redacted when it goes
+    // through the audit-trail path instead (App\Console\CommandPolicy::
+    // redactedDisplay()) — proving the broadcast-verbatim /
+    // audit-redacted asymmetry is real on both sides, not assumed.
+    $redactedForAudit = app(CommandPolicy::class)->redactedDisplay($echoedCommand);
+    expect($redactedForAudit)->not->toContain($consoleCanary);
+
+    // CraftKeeper's OWN configured secrets (canary 1 — Secret::put
+    // above) must never appear on this channel regardless: nothing in
+    // this app ever writes rcon.password/ai.api_key into a
+    // ConsoleEntry's `line`. Asserted explicitly rather than left
+    // implied by the rest of this test.
+    expect($payload['line'])->not->toContain($this->secretCanary);
 });
 
 /*

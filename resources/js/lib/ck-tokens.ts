@@ -35,19 +35,48 @@ export function ckToneColor(tone: CkTone): string {
 
 /** Background/text/border style for a tinted chip (badge). The handoff's
  * `design-tokens.json` documents this as a "badge fills ~15%, badge
- * borders ~35%" convention, but Task 20's computed (not assumed — see
- * that task's docs/architecture/decisions.md entry) contrast audit found
- * the 15% fill fails WCAG 2.2 AA (4.5:1) for solid-tone text on top of
- * it in multiple tone/theme combinations — most notably the "danger"
- * tone StatusBadge (StatusBadge.tsx), which measured ~4.3:1 on
- * `--ck-surface` in dark theme and ~4.05:1 in light theme. A fill tint
- * only ever REDUCES contrast versus the tone color alone (it moves the
- * background toward the text's own color), so the fix is a lower fill
- * percentage: 5% clears 4.5:1 for every StatusBadge tone actually used
- * (success/warning/danger/info) against both `--ck-surface` and
- * `--ck-elevated`, in both themes — every other tone had more margin
- * than danger did at 15%, so this is a strict improvement across the
- * board, not a trade-off against some other tone. */
+ * borders ~35%" convention. Task 20's first pass lowered the fill to 5%
+ * (a HIGHER tint paradoxically REDUCES contrast versus same-colored
+ * text, since it moves the background toward the text's own color) and
+ * claimed that cleared 4.5:1 for every tone against both `--ck-surface`
+ * and `--ck-elevated`, in both themes — that claim was never actually
+ * recomputed per tone/surface/theme and was FALSE. Hand-computed (sRGB
+ * -> linear -> relative luminance, not trusted from any handoff doc),
+ * the 5% fill measured, worst case per tone:
+ *
+ *   dark   danger  vs elevated: 4.31:1  (below 4.5:1)
+ *   light  success vs surface : 3.68:1  vs elevated: 3.93:1
+ *   light  warning vs surface : 4.07:1  vs elevated: 4.34:1
+ *
+ * A fill tint can only ever REDUCE contrast versus the bare tone color,
+ * so no positive fill percentage clears AA for light success/warning —
+ * even a 0% fill (no tint at all) only reaches 3.90:1 / 4.32:1 there,
+ * because those two LIGHT-theme tone colors themselves aren't dark
+ * enough against this theme's near-white surfaces. The fix has two
+ * parts:
+ *
+ *   1. Drop the chip fill to 0% (`background: transparent`) and rely on
+ *      the tone-colored border instead — this alone fixes the dark
+ *      danger-vs-elevated case (3.70:1 at 15% -> 4.31:1 at 5% -> 4.62:1
+ *      at 0%) and every other already-passing tone/theme/surface (more
+ *      margin, not less).
+ *   2. Darken every LIGHT-theme tone (`resources/css/app.css`) — the 0%
+ *      fill alone cannot clear AA for success/warning (the raw token
+ *      color itself is too light, not the tint), and danger/info were
+ *      only passing `--ck-surface`/`--ck-elevated` by a hair.
+ *
+ * A THIRD real surface widened this fix mid-review: a chip isn't only
+ * ever painted on `--ck-surface`/`--ck-elevated` — `AppShell.tsx`'s
+ * header renders a warning-tone `RestartRequired` chip directly on
+ * `--ck-bg` app-wide whenever a restart is pending, and `--ck-bg` is
+ * slightly DARKER than `--ck-surface` in the light theme, making it the
+ * tightest constraint of the three for a dark-on-light chip tone. Every
+ * light-theme tone is darkened enough to clear all three.
+ *
+ * MEASURED result (0% fill, darkened light tones), the floor across
+ * every tone x surface (`--ck-bg`/`--ck-surface`/`--ck-elevated`) x
+ * theme combination is 4.60:1 — see docs/architecture/decisions.md's
+ * Task 20 fix-pass entry for the full per-tone table. */
 export function ckChipStyle(tone: CkTone): CSSProperties {
     if (tone === 'neutral') {
         return {
@@ -60,7 +89,7 @@ export function ckChipStyle(tone: CkTone): CSSProperties {
     const varName = TONE_VAR[tone];
 
     return {
-        backgroundColor: `color-mix(in srgb, var(${varName}) 5%, transparent)`,
+        backgroundColor: 'transparent',
         color: `var(${varName})`,
         borderColor: `color-mix(in srgb, var(${varName}) 35%, transparent)`,
     };

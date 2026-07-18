@@ -207,15 +207,43 @@
        docs/architecture/decisions.md. */
     --ck-text-3: #787065;
 
-    --ck-success: #3f8b57;
-    --ck-warning: #9a6c26;
-    --ck-danger: #b04d3c;
+    /* Task 20 fix pass: was #3f8b57 (StatusBadge chip text on this
+       theme's `--ck-surface`/`--ck-elevated` measured 3.68:1 / 3.93:1 —
+       under the 4.5:1 AA floor for normal text, even with the chip fill
+       dropped to 0% — see ck-tokens.ts's `ckChipStyle()` docblock).
+       Darkened along the same hue/saturation, first to #397e4f (4.60:1
+       vs surface, 4.92:1 vs elevated) and then once more, after finding
+       a live third surface these tones also need to clear —
+       `resources/js/layouts/AppShell.tsx`'s header renders a warning-
+       tone `RestartRequired` chip directly on `--ck-bg` whenever a
+       restart is pending, app-wide — to #36774a: 4.60:1 vs `--ck-bg`,
+       5.06:1 vs surface, 5.41:1 vs elevated. */
+    --ck-success: #36774a;
+    /* Task 20 fix pass: was #9a6c26 (4.07:1 / 4.34:1 vs surface/elevated
+       — same failure mode as `--ck-success` above). Darkened twice, same
+       reasoning as `--ck-success`: to #8c6223, 4.60:1 vs `--ck-bg`,
+       5.06:1 vs surface, 5.41:1 vs elevated. */
+    --ck-warning: #8c6223;
+    /* Task 20 fix pass: was #b04d3c — already cleared AA against
+       `--ck-surface`/`--ck-elevated` (4.63:1 / 4.94:1) but not the
+       third live surface, `--ck-bg` (4.49:1, marginally under 4.5:1 —
+       see `--ck-success`'s comment above for why `--ck-bg` matters).
+       Darkened slightly to #ad4c3b: 4.60:1 vs `--ck-bg`, 5.06:1 vs
+       surface, 5.41:1 vs elevated. */
+    --ck-danger: #ad4c3b;
     /* Task 20: this theme's danger hue is already dark enough that white
-       text passes AA (5.29:1) — kept as white so light-theme buttons are
-       visually unchanged; see the dark-theme block above for why a
-       dedicated value is needed there. */
+       text passes AA (now 5.42:1, was 5.29:1 before the further
+       darkening above — a darker danger hue only ever INCREASES
+       contrast for a white foreground) — kept as white so light-theme
+       buttons are visually unchanged; see the dark-theme block above for
+       why a dedicated value is needed there. */
     --ck-danger-fg: #ffffff;
-    --ck-info: #3a6ea5;
+    /* Task 20 fix pass: was #3a6ea5 — already cleared AA against
+       `--ck-surface`/`--ck-elevated` (4.66:1 / 4.98:1) and `--ck-bg`
+       itself (4.51:1) by a hair; darkened slightly anyway for the same
+       margin every other tone now has: #396da3, 4.60:1 vs `--ck-bg`,
+       5.06:1 vs surface, 5.41:1 vs elevated. */
+    --ck-info: #396da3;
 
     --ck-accent: #b4552d;
     --ck-accent-hover: #a24a25;

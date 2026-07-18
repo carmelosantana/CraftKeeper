@@ -107,11 +107,35 @@ enters, and validated/bounded/redacted before it can affect anything.
   OUTGOING commands (which IS in CraftKeeper's control) — extending that
   heuristic to INCOMING console text is out of this task's scope and is
   recorded here as a deliberate, documented boundary rather than a silent
-  gap. `tests/Integration/Security/SecretLeakTest.php`'s broadcast-payload
-  test targets `App\Events\OperationUpdated` (the CraftKeeper-owned
-  operation-progress channel, a strict scalar allow-list that structurally
-  cannot carry a secret) rather than asserting something false about
-  `ConsoleEntryReceived`.
+  gap.
+
+  The one in-scope round-trip this boundary actually produces: an admin
+  runs a command through CraftKeeper's own console; Paper echoes that
+  command back into its own `latest.log`; `App\Server\LogTailService`
+  tails the new line and `App\Events\ConsoleEntryReceived` broadcasts it
+  — VERBATIM, including any secret-shaped text the admin typed — on the
+  admin-only private `server.console` channel. The SAME command, on its
+  way to being persisted for the audit trail, IS redacted by
+  `App\Console\CommandPolicy::redactedDisplay()` first. That asymmetry
+  (broadcast verbatim, audit-log redacted) is intentional, not an
+  oversight: the audit trail is a durable, queryable record that
+  outlives the session, while the console channel is a real-time mirror
+  of output CraftKeeper already can't control the shape of in the
+  general case (see above) — redacting only the one path CraftKeeper
+  actually originates (its own outgoing command) is the boundary this
+  task draws.
+
+  `tests/Integration/Security/SecretLeakTest.php` encodes both halves of
+  this explicitly: its `OperationUpdated` broadcast-payload test targets
+  the CraftKeeper-owned operation-progress channel (a strict scalar
+  allow-list that structurally cannot carry a secret), and a second,
+  dedicated test seeds a real `ConsoleEntry` with a secret-shaped canary
+  and asserts the DOCUMENTED behavior directly — the canary reaches
+  `ConsoleEntryReceived::broadcastWith()` verbatim (accepted, not a
+  leak), while the same string passed through
+  `CommandPolicy::redactedDisplay()` is redacted — rather than only
+  asserting something narrower about `OperationUpdated` and leaving the
+  actually-free-form channel unverified.
 - **TOCTOU on filesystem containment** is mitigated (`reverifyContainment()`
   immediately before I/O) but not eliminated — a mounted volume could, in
   principle, be swapped out between the check and the read/write on a

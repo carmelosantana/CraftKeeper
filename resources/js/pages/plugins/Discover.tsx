@@ -183,7 +183,12 @@ export default function PluginDiscover({ query, items, sourceResults }: PluginDi
                 <aside className="w-full shrink-0 sm:w-[180px]" data-test="discover-filters">
                     <div
                         className="mb-[8px] text-[10px] font-bold tracking-wide uppercase"
-                        style={{ color: 'var(--ck-text-3)' }}
+                        // Task 20 fix pass: this heading sits directly on
+                        // --ck-bg (no --ck-surface/--ck-elevated card
+                        // wraps this <aside>), where --ck-text-3 measures
+                        // only 4.15:1 in light theme. --ck-text-2 clears
+                        // AA against --ck-bg in both themes.
+                        style={{ color: 'var(--ck-text-2)' }}
                     >
                         Source
                     </div>

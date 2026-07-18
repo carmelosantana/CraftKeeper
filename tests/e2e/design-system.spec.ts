@@ -43,12 +43,50 @@ test.describe('design system', () => {
         });
     }
 
+    // Task 20 fix pass (Important 3): every axe scan above runs in the
+    // default (dark) theme only — the light theme was never
+    // axe-scanned, which is exactly why the light-theme chip/text-3 AA
+    // failures (see docs/architecture/decisions.md's Task 20 fix-pass
+    // entry) went undetected. This flips the theme after load (the same
+    // action a real user takes) and re-scans, at the full desktop
+    // viewport, with the same WCAG 2.2 AA tag set as every other scan in
+    // this file.
+    test('renders /design-system with no axe violations in the LIGHT theme', async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.goto('/design-system');
+        await expect(
+            page.getByRole('heading', { name: 'Design system', level: 1 }),
+        ).toBeVisible();
+
+        await page.getByRole('button', { name: 'light', exact: true }).first().click();
+        await expect(page.locator('html')).toHaveAttribute(
+            'data-theme',
+            'light',
+        );
+
+        const results = await new AxeBuilder({ page })
+            .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])
+            .analyze();
+
+        expect(results.violations).toEqual([]);
+    });
+
     test('exposes status without relying on color (StatusBadge, live DOM)', async ({
         page,
     }) => {
         await page.goto('/design-system');
 
-        const degraded = page.getByRole('status', { name: /degraded/i });
+        // Task 20 fix pass's chip-contrast fixture (see DesignSystem.tsx)
+        // renders its own "degraded" StatusBadge instances alongside the
+        // pre-existing "every documented state" gallery, so more than one
+        // now matches — `.first()` picks the gallery's, any of them would
+        // do since this only cares that "degraded" renders with a visible
+        // label.
+        const degraded = page
+            .getByRole('status', { name: /degraded/i })
+            .first();
 
         await expect(degraded).toBeVisible();
         await expect(degraded).toContainText('Degraded');
@@ -120,16 +158,28 @@ test.describe('design system', () => {
         await expect(page.locator('#ck-main-content')).toBeFocused();
     });
 
-    // Task 20's ambiguity resolution #1: a systematic, computed (not
-    // trusted-from-the-handoff-doc) re-verification of the four AA
-    // contrast failures that had each accumulated a per-task workaround
-    // instead of a source fix — ck-text-3, the StatusBadge "danger" chip,
-    // the destructive Button, and the Sonner toast description. This
-    // reads the real `--ck-*` custom properties straight off the live
-    // page (not hardcoded expectations) and computes WCAG 2.2 contrast
-    // in-browser, so a future token change that regresses any of these
-    // pairs fails this suite rather than silently shipping.
-    test('token contrast: ck-text-3 and the StatusBadge danger chip clear 4.5:1 AA in both themes', async ({
+    // Task 20's ambiguity resolution #1, fix pass: a systematic, computed
+    // (not trusted-from-the-handoff-doc, not trusted from a prior pass's
+    // own claims either) re-verification of ck-text-3 and every
+    // StatusBadge/RestartRequired chip tone. The ORIGINAL version of this
+    // test recomputed the chip's color-mix formula (background = mix(
+    // tone, surface, <hardcoded 5>%)) INSIDE the test itself, so a
+    // regression that reverted ckChipStyle's actual fill percentage in
+    // resources/js/lib/ck-tokens.ts would still have passed — the test
+    // was verifying its own hardcoded assumption, not the shipped
+    // component. This version instead renders the REAL StatusBadge/
+    // RestartRequired components (via DesignSystem.tsx's "Chip contrast
+    // fixture", `[data-test="chip-contrast-bg"]` /
+    // `[data-test="chip-contrast-surface"]` /
+    // `[data-test="chip-contrast-elevated"]`) and reads
+    // `getComputedStyle(el).backgroundColor`/`.color` straight off the
+    // live DOM, compositing the chip's own (possibly translucent)
+    // background over its real container's background — so it fails if
+    // `ckChipStyle` ever regresses, at any fill percentage. Loops all
+    // four tones (success/warning/danger/info) x all three real chip
+    // surfaces (`--ck-bg` — e.g. AppShell.tsx's header RestartRequired
+    // chip — `--ck-surface`, `--ck-elevated`) x both themes.
+    test('token contrast: ck-text-3 and every StatusBadge/RestartRequired chip tone clear 4.5:1 AA on --ck-bg, --ck-surface, and --ck-elevated, in both themes', async ({
         page,
     }) => {
         await page.setViewportSize({ width: 1440, height: 1000 });
@@ -138,7 +188,7 @@ test.describe('design system', () => {
             page.getByRole('heading', { name: 'Design system', level: 1 }),
         ).toBeVisible();
 
-        const readTokenContrasts = () =>
+        const readTextTokenContrasts = () =>
             page.evaluate(() => {
                 function srgbToLinear(c: number): number {
                     const n = c / 255;
@@ -183,33 +233,6 @@ test.describe('design system', () => {
                     return (lighter + 0.05) / (darker + 0.05);
                 }
 
-                function mix(
-                    hex1: string,
-                    hex2: string,
-                    pct1: number,
-                ): string {
-                    const a = normalizeHex(hex1).match(
-                        /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i,
-                    )!;
-                    const b = normalizeHex(hex2).match(
-                        /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i,
-                    )!;
-                    const p = pct1 / 100;
-                    const chan = (x: string, y: string) =>
-                        Math.round(
-                            parseInt(x, 16) * p + parseInt(y, 16) * (1 - p),
-                        );
-
-                    return (
-                        '#' +
-                        [1, 2, 3]
-                            .map((i) =>
-                                chan(a[i], b[i]).toString(16).padStart(2, '0'),
-                            )
-                            .join('')
-                    );
-                }
-
                 const root = getComputedStyle(document.documentElement);
                 const token = (name: string) =>
                     root.getPropertyValue(name).trim();
@@ -220,32 +243,201 @@ test.describe('design system', () => {
                 const danger = token('--ck-danger');
                 const dangerFg = token('--ck-danger-fg');
 
-                // Mirrors resources/js/lib/ck-tokens.ts's ckChipStyle():
-                // the chip background is a 5% tint of the tone color over
-                // whatever surface sits behind it.
-                const dangerChipOnSurface = mix(danger, surface, 5);
-                const dangerChipOnElevated = mix(danger, elevated, 5);
-
                 return {
                     text3VsSurface: contrastRatio(text3, surface),
                     text3VsElevated: contrastRatio(text3, elevated),
-                    dangerChipVsSurface: contrastRatio(
-                        danger,
-                        dangerChipOnSurface,
-                    ),
-                    dangerChipVsElevated: contrastRatio(
-                        danger,
-                        dangerChipOnElevated,
-                    ),
                     dangerFgVsDanger: contrastRatio(dangerFg, danger),
                 };
             });
 
-        const dark = await readTokenContrasts();
-        expect(dark.text3VsSurface).toBeGreaterThanOrEqual(4.5);
-        expect(dark.text3VsElevated).toBeGreaterThanOrEqual(4.5);
-        expect(dark.dangerChipVsSurface).toBeGreaterThanOrEqual(4.5);
-        expect(dark.dangerFgVsDanger).toBeGreaterThanOrEqual(4.5);
+        // Renders real StatusBadge/RestartRequired chips (DesignSystem.tsx's
+        // fixture) and reads their ACTUAL computed background/text color
+        // off the live DOM — not a re-implementation of ckChipStyle's
+        // color-mix formula. The chip's own backgroundColor may itself be
+        // translucent (an rgba() with alpha < 1, e.g. from a color-mix()
+        // tint), so it's alpha-composited over its real container's
+        // (opaque) backgroundColor before computing the ratio, exactly as
+        // a browser paints it.
+        const readChipContrasts = () =>
+            page.evaluate(() => {
+                function srgbToLinear(c: number): number {
+                    const n = c / 255;
+                    return n <= 0.04045
+                        ? n / 12.92
+                        : ((n + 0.055) / 1.055) ** 2.4;
+                }
+
+                function luminance(rgb: {
+                    r: number;
+                    g: number;
+                    b: number;
+                }): number {
+                    return (
+                        0.2126 * srgbToLinear(rgb.r) +
+                        0.7152 * srgbToLinear(rgb.g) +
+                        0.0722 * srgbToLinear(rgb.b)
+                    );
+                }
+
+                function parseColor(value: string): {
+                    r: number;
+                    g: number;
+                    b: number;
+                    a: number;
+                } {
+                    const rgbMatch = value.match(
+                        /rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\s*\)/,
+                    );
+                    if (rgbMatch) {
+                        return {
+                            r: Number(rgbMatch[1]),
+                            g: Number(rgbMatch[2]),
+                            b: Number(rgbMatch[3]),
+                            a: rgbMatch[4] === undefined ? 1 : Number(rgbMatch[4]),
+                        };
+                    }
+
+                    // A `color-mix()` computed value doesn't always
+                    // serialize back out as rgb()/rgba() — Chromium can
+                    // report it as `color(srgb R G B / A)` (channels as
+                    // 0-1 fractions, not 0-255 integers). Deliberately
+                    // handled here (not just rgb()/rgba()) so that a
+                    // regression which reintroduces a color-mix() chip
+                    // fill still produces a real, readable "contrast
+                    // ratio X < 4.5" assertion failure below, instead of
+                    // an opaque "not a color" parse error that would
+                    // mask the actual regression this guard exists to
+                    // catch.
+                    const colorFnMatch = value.match(
+                        /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)/,
+                    );
+                    if (colorFnMatch) {
+                        return {
+                            r: Number(colorFnMatch[1]) * 255,
+                            g: Number(colorFnMatch[2]) * 255,
+                            b: Number(colorFnMatch[3]) * 255,
+                            a:
+                                colorFnMatch[4] === undefined
+                                    ? 1
+                                    : Number(colorFnMatch[4]),
+                        };
+                    }
+
+                    throw new Error(
+                        `not an rgb()/rgba()/color(srgb ...) color: "${value}"`,
+                    );
+                }
+
+                function compositeOverOpaque(
+                    fg: { r: number; g: number; b: number; a: number },
+                    bg: { r: number; g: number; b: number },
+                ): { r: number; g: number; b: number } {
+                    return {
+                        r: fg.r * fg.a + bg.r * (1 - fg.a),
+                        g: fg.g * fg.a + bg.g * (1 - fg.a),
+                        b: fg.b * fg.a + bg.b * (1 - fg.a),
+                    };
+                }
+
+                function contrastRatio(
+                    rgb1: { r: number; g: number; b: number },
+                    rgb2: { r: number; g: number; b: number },
+                ): number {
+                    const l1 = luminance(rgb1);
+                    const l2 = luminance(rgb2);
+                    const lighter = Math.max(l1, l2);
+                    const darker = Math.min(l1, l2);
+                    return (lighter + 0.05) / (darker + 0.05);
+                }
+
+                const TONE_SELECTORS: Array<[string, string]> = [
+                    ['success', '[data-ck-status="online"]'],
+                    ['warning', '[data-ck-status="degraded"]'],
+                    ['danger', '[data-ck-status="offline"]'],
+                    ['info', '[data-ck-status="in-progress"]'],
+                ];
+
+                const results: Record<string, number> = {};
+
+                for (const surfaceName of ['bg', 'surface', 'elevated']) {
+                    const container = document.querySelector(
+                        `[data-test="chip-contrast-${surfaceName}"]`,
+                    );
+                    if (!container) {
+                        throw new Error(
+                            `chip-contrast fixture not found for ${surfaceName}`,
+                        );
+                    }
+
+                    const containerBg = parseColor(
+                        getComputedStyle(container).backgroundColor,
+                    );
+
+                    for (const [tone, selector] of TONE_SELECTORS) {
+                        const el = container.querySelector(selector);
+                        if (!el) {
+                            throw new Error(
+                                `chip not found: ${selector} in ${surfaceName} fixture`,
+                            );
+                        }
+                        const style = getComputedStyle(el);
+                        const bg = parseColor(style.backgroundColor);
+                        const text = parseColor(style.color);
+                        const effectiveBg = compositeOverOpaque(
+                            bg,
+                            containerBg,
+                        );
+                        results[`${tone}_vs_${surfaceName}`] = contrastRatio(
+                            text,
+                            effectiveBg,
+                        );
+                    }
+
+                    const restartEl = container.querySelector(
+                        '[data-ck-restart-required="chip"]',
+                    );
+                    if (!restartEl) {
+                        throw new Error(
+                            `RestartRequired chip not found in ${surfaceName} fixture`,
+                        );
+                    }
+                    const restartStyle = getComputedStyle(restartEl);
+                    const restartBg = parseColor(
+                        restartStyle.backgroundColor,
+                    );
+                    const restartText = parseColor(restartStyle.color);
+                    const restartEffectiveBg = compositeOverOpaque(
+                        restartBg,
+                        containerBg,
+                    );
+                    results[`restartRequired_vs_${surfaceName}`] =
+                        contrastRatio(restartText, restartEffectiveBg);
+                }
+
+                return results;
+            });
+
+        function assertAllPass(
+            results: Record<string, number>,
+            themeName: string,
+        ) {
+            const entries = Object.entries(results);
+            expect(entries.length).toBeGreaterThan(0);
+            for (const [key, ratio] of entries) {
+                expect(
+                    ratio,
+                    `${themeName} theme: ${key} measured ${ratio.toFixed(2)}:1, need >= 4.5:1`,
+                ).toBeGreaterThanOrEqual(4.5);
+            }
+        }
+
+        const darkTokens = await readTextTokenContrasts();
+        expect(darkTokens.text3VsSurface).toBeGreaterThanOrEqual(4.5);
+        expect(darkTokens.text3VsElevated).toBeGreaterThanOrEqual(4.5);
+        expect(darkTokens.dangerFgVsDanger).toBeGreaterThanOrEqual(4.5);
+
+        const darkChips = await readChipContrasts();
+        assertAllPass(darkChips, 'dark');
 
         await page.getByRole('button', { name: 'light', exact: true }).first().click();
         await expect(page.locator('html')).toHaveAttribute(
@@ -253,11 +445,13 @@ test.describe('design system', () => {
             'light',
         );
 
-        const light = await readTokenContrasts();
-        expect(light.text3VsSurface).toBeGreaterThanOrEqual(4.5);
-        expect(light.text3VsElevated).toBeGreaterThanOrEqual(4.5);
-        expect(light.dangerChipVsSurface).toBeGreaterThanOrEqual(4.5);
-        expect(light.dangerFgVsDanger).toBeGreaterThanOrEqual(4.5);
+        const lightTokens = await readTextTokenContrasts();
+        expect(lightTokens.text3VsSurface).toBeGreaterThanOrEqual(4.5);
+        expect(lightTokens.text3VsElevated).toBeGreaterThanOrEqual(4.5);
+        expect(lightTokens.dangerFgVsDanger).toBeGreaterThanOrEqual(4.5);
+
+        const lightChips = await readChipContrasts();
+        assertAllPass(lightChips, 'light');
     });
 
     // Task 20: reproduces the exact bug behind the ~1.88:1 axe violation

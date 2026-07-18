@@ -5,6 +5,7 @@ use App\Console\Exceptions\RconAuthFailed;
 use App\Console\MinecraftRconClient;
 use App\Console\RconCommand;
 use App\Console\StreamRconTransport;
+use Illuminate\Support\Facades\File;
 use Symfony\Component\Process\Process;
 
 /**
@@ -207,7 +208,14 @@ it('boots a real Legendary Paper+Geyser+Floodgate image, authenticates over real
 
             recordLegendaryResult('discovered '.count($paths).' config files from the real server, including server.properties');
         } finally {
-            legendaryDocker(['rm', '-rf', $localCopy]);
+            // Task 20 fix pass: this was `legendaryDocker(['rm', '-rf',
+            // $localCopy])` — a bogus `docker rm -rf <host-path>`. `docker
+            // rm` removes CONTAINERS by name/id, not host paths, so this
+            // never deleted the local temp directory `mkdir()`-ed above
+            // (and legendaryDocker()'s return value is never checked, so
+            // the failure was silently swallowed). Use the actual
+            // filesystem API for a HOST directory.
+            File::deleteDirectory($localCopy);
         }
 
         recordLegendaryResult('PASSED end to end against digest '.$digest);

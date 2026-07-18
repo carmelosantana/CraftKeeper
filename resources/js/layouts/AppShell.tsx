@@ -232,12 +232,13 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
                     (square-pulse for online, triangle for
                     pending-restart, etc.) with a visible text label,
                     rather than color alone. This reuses StatusGlyph
-                    directly rather than the full StatusBadge chip: the
-                    chip's tinted fill is only contrast-verified against
-                    --ck-surface (see design-tokens.json), and this card
-                    sits on --ck-elevated — --ck-text-2 is the token
-                    already proven AA-safe on --ck-elevated (see the
-                    address line below). */}
+                    directly rather than the full StatusBadge chip purely
+                    for layout density in this compact identity-card row
+                    — as of Task 20's fix pass the chip itself clears AA
+                    on both --ck-surface and --ck-elevated (see
+                    ck-tokens.ts's ckChipStyle docblock), so this is not
+                    an AA workaround. --ck-text-2 is the token used for
+                    the label here and below. */}
                 <span
                     role="status"
                     aria-label={meta.label}
@@ -506,8 +507,19 @@ function AppShellChrome({
                         className="hidden h-[34px] flex-none items-center gap-[7px] rounded-[7px] border px-[13px] text-[12px] font-semibold lg:inline-flex"
                         style={{
                             borderColor: 'var(--ck-accent)',
-                            backgroundColor:
-                                'color-mix(in srgb, var(--ck-accent) 14%, transparent)',
+                            // Task 20 fix pass: was a 14% `--ck-accent`
+                            // tint — same anti-pattern ck-tokens.ts's
+                            // ckChipStyle docblock documents at length: a
+                            // fill tint only ever REDUCES contrast versus
+                            // same-hued text, and this button's own
+                            // `--ck-accent-hover` label text measured
+                            // only 4.24:1 against the tinted effective
+                            // background in light theme (under 4.5:1).
+                            // Dropping the fill to 0% (transparent, relying
+                            // on the border) fixes it: the SAME label text
+                            // against the real, untinted background behind
+                            // this header clears 5.04:1.
+                            backgroundColor: 'transparent',
                             color: 'var(--ck-accent-hover)',
                         }}
                     >
@@ -515,15 +527,29 @@ function AppShellChrome({
                             aria-hidden="true"
                             className="flex size-4 items-center justify-center rounded-[4px] text-[8px] font-bold"
                             style={{
-                                // A light tint background + the same
-                                // token as foreground reads fine at
-                                // regular size, but at 8px bold it falls
-                                // below 4.5:1 (aria-hidden doesn't exempt
-                                // it — sighted users still see it). A
-                                // solid fill with --ck-bg text holds AA.
+                                // Task 20 fix pass: `--ck-provenance-ai-
+                                // provider` (this purple) is NOT
+                                // per-theme (resources/css/app.css defines
+                                // it once, same hex in both themes) — the
+                                // comment this replaces assumed "a solid
+                                // fill with --ck-bg text holds AA," which
+                                // only happened to be true because
+                                // `--ck-bg` is dark in the dark theme this
+                                // was written/checked against; in light
+                                // theme `--ck-bg` flips to near-white,
+                                // measuring 2.15:1 against this same fixed
+                                // purple (a severe failure, only caught
+                                // once axe was ever run in light theme).
+                                // This glyph needs a FOREGROUND THAT DOES
+                                // NOT FLIP WITH THEME, since its
+                                // background doesn't either: a fixed dark
+                                // ink (the same shade `--ck-accent-fg`/
+                                // `--ck-danger-fg` use for dark-theme
+                                // text-on-solid-fill) clears 7.09:1 here
+                                // in both themes.
                                 backgroundColor:
                                     'var(--ck-provenance-ai-provider)',
-                                color: 'var(--ck-bg)',
+                                color: '#1c1512',
                             }}
                         >
                             AI

@@ -262,8 +262,20 @@ class ConfigController extends Controller
         $resolved = $this->resolvePath($path);
         $configFile = ConfigFile::query()->where('path', $resolved->relativePath)->first();
 
+        // Task 20 fix pass: `created_at` alone is only second-precision,
+        // so two revisions created within the same second (e.g. two
+        // rapid successive edits) sort AMBIGUOUSLY on that column alone —
+        // discovered for real by docker/integration-tests/run.php's
+        // restore scenario, which applies two edits back to back and got
+        // the wrong one back from this exact query. `id` (a plain
+        // auto-increment primary key) always matches true insertion
+        // order regardless of timestamp ties, so it's a reliable
+        // secondary sort key here.
         $revisions = $configFile !== null
-            ? ConfigRevision::query()->where('config_file_id', $configFile->id)->latest()->get()
+            ? ConfigRevision::query()->where('config_file_id', $configFile->id)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get()
             : collect();
 
         return Inertia::render('config/History', [

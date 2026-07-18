@@ -4252,3 +4252,129 @@ nothing renders it there today); Firefox/WebKit Playwright projects
 401/429/timeout are not distinguished into separate reported states;
 Minecraft console output remains un-redacted by design (documented, not
 silently gapped).
+
+### Task 20 fix pass — the chip-contrast claim above was itself false
+
+A subsequent review of this task's own work found that both the
+"5% clears 4.5:1 for every tone, both surfaces, both themes" claim in
+`ckChipStyle`'s docblock (`resources/js/lib/ck-tokens.ts`) and this
+entry's own "not a live violation since nothing renders it there today"
+were wrong, and re-verified everything by hand (sRGB -> linear -> WCAG
+relative luminance, no formula trusted from a prior pass or from
+`Design/handoff/design-tokens.json`):
+
+- **The "nothing renders it there today" claim was false.**
+  `RestartRequired`'s `variant="chip"` (warning tone, same
+  `ckChipStyle()`) renders on a `--ck-elevated` container at
+  `resources/js/pages/plugins/Upload.tsx:164` (the parent `<div>` at
+  that file's line ~113 sets `backgroundColor: 'var(--ck-elevated)'`).
+  Chips on `--ck-elevated` are a real, live surface, not a theoretical
+  one.
+- **The 5% fill measured, worst case per tone/surface/theme** (this is
+  what should have been reported the first time, instead of a blanket
+  "clears AA" claim):
+
+  | Tone    | Theme | vs `--ck-surface` | vs `--ck-elevated` |
+  |---------|-------|--------------------|---------------------|
+  | success | dark  | 6.16:1             | 5.30:1              |
+  | warning | dark  | 6.62:1             | 5.69:1              |
+  | danger  | dark  | 5.00:1             | **4.31:1 (FAIL)**   |
+  | info    | dark  | 5.61:1             | 4.83:1              |
+  | success | light | **3.68:1 (FAIL)**  | **3.93:1 (FAIL)**   |
+  | warning | light | **4.07:1 (FAIL)**  | **4.34:1 (FAIL)**   |
+  | danger  | light | 4.63:1             | 4.94:1              |
+  | info    | light | 4.66:1             | 4.98:1              |
+
+  Five of the eight tone/theme pairs fail on at least one surface at
+  5% fill — not the "every tone... in both themes" the docblock
+  claimed.
+- **A fill tint can only ever reduce contrast** versus the bare tone
+  color (it moves the background toward the text's own color), so no
+  positive fill percentage fixes light success/warning — even 0% fill
+  (no tint, background fully transparent) only reaches 3.90:1 /
+  4.16:1 (success) and 4.32:1 / 4.62:1 (warning) against
+  surface/elevated, because those two LIGHT-theme token colors
+  themselves aren't dark enough against this theme's near-white
+  surfaces.
+- **Fix, in `resources/css/app.css` and `resources/js/lib/ck-tokens.ts`:**
+  1. `ckChipStyle`'s fill drops to 0% (`background: transparent`,
+     relying on the tone-colored border) — fixes the dark
+     danger-vs-elevated case (3.70:1 at 15% -> 4.31:1 at 5% -> **4.62:1**
+     at 0%) and gives every already-passing pair more margin, not less.
+  2. Every LIGHT-theme tone is darkened (same hue/saturation, lower
+     lightness): `--ck-success` `#3f8b57` -> `#36774a`, `--ck-warning`
+     `#9a6c26` -> `#8c6223`, `--ck-danger` `#b04d3c` -> `#ad4c3b`,
+     `--ck-info` `#3a6ea5` -> `#396da3`.
+- **A third live surface widened this mid-review.** The fix above was
+  first verified against only `--ck-surface`/`--ck-elevated` (matching
+  this task's own original finding) and landed at 4.60:1+ against both.
+  Adding Important 3's light-theme axe scan (see below) then caught a
+  THIRD real, live surface no prior pass had enumerated:
+  `resources/js/layouts/AppShell.tsx`'s header renders a warning-tone
+  `RestartRequired` chip directly on `--ck-bg` (not a card) app-wide
+  whenever a restart is pending — and `--ck-bg` is slightly DARKER than
+  `--ck-surface` in the light theme, making it the tightest of the three
+  constraints for a dark-on-light chip tone (light warning measured only
+  4.18:1 there at the first pass's values). Every light-theme tone was
+  darkened a second time to also clear `--ck-bg` — danger and info had
+  already cleared surface/elevated but were darkened anyway for the same
+  margin every tone now has.
+- **MEASURED result, every tone x surface x theme (floor 4.58:1):**
+
+  | Tone    | Theme | vs `--ck-bg` | vs `--ck-surface` | vs `--ck-elevated` |
+  |---------|-------|--------------|--------------------|---------------------|
+  | success | dark  | 7.15:1       | 6.68:1             | 5.77:1              |
+  | warning | dark  | 7.72:1       | 7.21:1             | 6.23:1              |
+  | danger  | dark  | 5.73:1       | 5.35:1             | 4.62:1              |
+  | info    | dark  | 6.48:1       | 6.05:1             | 5.23:1              |
+  | success | light | 4.58:1       | 5.04:1             | 5.39:1              |
+  | warning | light | 4.59:1       | 5.05:1             | 5.40:1              |
+  | danger  | light | 4.61:1       | 5.07:1             | 5.42:1              |
+  | info    | light | 4.59:1       | 5.05:1             | 5.40:1              |
+
+  All 24 pairs now clear 4.5:1 AA.
+- **Two more light-theme-only violations surfaced by the same axe scan,
+  unrelated to chip tint math, both fixed:**
+  1. `DesignSystem.tsx`'s page-local `SectionHeading` eyebrow
+     (`"01 — Color"` etc.) used `--ck-accent` directly on this page's
+     bare `--ck-bg` — 4.17:1. Switched to `--ck-text-2` (5.98:1 vs
+     `--ck-bg` in light theme).
+  2. `AppShell.tsx`'s "Ask AI" header button: its label text
+     (`--ck-accent-hover`) sat on a 14%-`--ck-accent` self-tint —
+     4.24:1, the SAME "a fill tint only reduces contrast" bug as the
+     chip fix above, in a different component. Fill dropped to 0%
+     (transparent, border only) — 5.04:1 unmixed. Its "AI" glyph
+     separately used `--ck-bg` as foreground text on the always-the-
+     same-hex `--ck-provenance-ai-provider` background — 2.15:1 in light
+     theme (only ever verified in dark theme, where `--ck-bg` happens to
+     be dark). Switched to a fixed, theme-independent dark ink (`#1c1512`,
+     the same shade `--ck-danger-fg`/`--ck-accent-fg` use elsewhere for
+     dark-theme text-on-solid-fill) — 7.09:1 in both themes, since the
+     badge's own background never changes between themes either.
+  These two are unrelated to `ckChipStyle`/StatusBadge but were found by
+  the exact same light-theme axe scan and are recorded here rather than
+  in a separate, easy-to-lose follow-up note.
+- **`--ck-text-3` vs `--ck-bg`** (asked as a follow-up check, not
+  previously audited): 5.63:1 dark, **4.15:1 light — under AA**. Two
+  live call sites render `--ck-text-3` directly on `--ck-bg` (not a
+  `--ck-surface`/`--ck-elevated` card): the line-number gutter in
+  `resources/js/features/config/SourceEditor.tsx` and the "Source"
+  filter heading in `resources/js/pages/plugins/Discover.tsx`. Both
+  switched to `--ck-text-2` (5.98:1 light / 7.99:1 dark vs `--ck-bg`).
+  The token itself (`--ck-text-3`) is left unchanged — every remaining
+  call site renders it on `--ck-surface` or `--ck-elevated`, where it
+  already clears AA (see the `TEXT_TOKENS` comment in
+  `resources/js/pages/DesignSystem.tsx`).
+- **The contrast guard itself was not a real regression check.** The
+  e2e test that was supposed to catch exactly this class of bug
+  (`tests/e2e/design-system.spec.ts`) recomputed the chip's mix
+  percentage as a hardcoded literal inside the test rather than reading
+  it from the live-rendered DOM, so a revert of `ckChipStyle` back to
+  15% would still have passed it. It has been rewritten to render real
+  `StatusBadge`/`RestartRequired` components in a dedicated fixture
+  (`resources/js/pages/DesignSystem.tsx`'s "Chip contrast fixture"
+  section, on both `--ck-surface` and `--ck-elevated`) and read
+  `getComputedStyle(el).backgroundColor`/`.color` directly, looping all
+  four tones x both surfaces x both themes. Confirmed to fail when
+  `ckChipStyle`'s fill is reverted to a non-zero percentage, then
+  restored.

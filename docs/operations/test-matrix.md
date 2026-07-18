@@ -48,19 +48,43 @@ breakpoint change is a one-file edit.
 
 ### Theme
 
-`tests/e2e/design-system.spec.ts`'s new (Task 20) "token contrast" test
-exercises dark and light explicitly (clicking the theme toggle,
-asserting `<html data-theme>` flips) and asserts computed WCAG contrast
-in both. All four accents (terracotta/emerald/slate/bronze) are toggled
-and axe-scanned by the pre-existing `AccentPicker`/accent-button
-assertions already in that spec file and by
-`resources/js/pages/DesignSystem.tsx`'s own live accent switcher, which
-every viewport/axe test above renders through. Task 20's own contrast
-audit (see `docs/architecture/decisions.md`) additionally computed every
-`--ck-*` foreground/background pair BY HAND for both themes (not just
-observed via axe) — axe alone cannot always catch a marginal contrast
-failure depending on which DOM node it samples, which is exactly what
-let the four fixed pairs go unnoticed across Tasks 3/9/12/19.
+**Dark/light — automated.** `tests/e2e/design-system.spec.ts`'s "token
+contrast" test exercises dark and light explicitly (clicking the theme
+toggle, asserting `<html data-theme>` flips) and reads real, live-
+rendered `StatusBadge`/`RestartRequired` chips plus `--ck-text-3` off
+the DOM to assert computed WCAG contrast in both — not a hardcoded
+reimplementation of the token math (a Task 20 fix-pass corrected an
+earlier version of this test that recomputed the chip's color-mix
+formula itself, which meant it could not fail on a real regression; see
+`docs/architecture/decisions.md`'s Task 20 fix-pass entry). The same
+spec file's viewport loop (three viewports) axe-scans the DEFAULT (dark)
+theme only; a separate light-theme test
+(`renders /design-system with no axe violations in the LIGHT theme`)
+adds one full-page axe scan in light theme at the desktop viewport —
+added specifically because every axe scan previously ran dark-only,
+which is exactly why the light-theme chip/text-3 AA failures the fix
+pass corrected went undetected. Task 20's own contrast audit (see
+`docs/architecture/decisions.md`) additionally computed every `--ck-*`
+foreground/background pair BY HAND for both themes (not just observed
+via axe) — axe alone cannot always catch a marginal contrast failure
+depending on which DOM node it samples, which is exactly what let
+several pairs go unnoticed across Tasks 3/9/12/19/20.
+
+**Accents — NOT automated.** `grep -rn accent tests/e2e/` returns zero
+matches: there is no e2e assertion that clicks `AccentPicker`, no
+per-accent axe scan, and no per-accent contrast check for any of the
+four accent variants (terracotta/emerald/slate/bronze). An earlier
+version of this row claimed accent toggling was "axe-scanned by the
+pre-existing AccentPicker/accent-button assertions already in that spec
+file" — that assertion never existed; the claim was wrong. What DOES
+exist: `resources/css/app.css` defines all four accent variants per
+theme, and `resources/js/pages/DesignSystem.tsx` renders a live
+`AccentPicker` that a human can click through manually on `/design-
+system`. **Follow-up, not done in this task:** add an e2e test that
+selects each accent via `AccentPicker`, asserts `[data-accent]` flips,
+and axe-scans (or computed-contrast-checks, per `--ck-accent-fg`
+against `--ck-accent`) each of the four — mirroring the Browser row's
+"one-line addition, just not turned on yet" framing above.
 
 ### Minecraft filesystem
 

@@ -198,14 +198,14 @@ export function DiffReview({
                         ? 'Review restore'
                         : 'Review change'}
                 </h2>
-                {/* Not the tinted StatusBadge chip: its ~15%-fill background
-                    is only contrast-verified against --ck-surface (see
-                    design-tokens.json and AppShell.tsx's ServerIdentityCard
-                    docblock for the same, earlier-discovered issue) — this
-                    panel sits on --ck-elevated, where that fill fails AA
-                    at this text size. StatusGlyph (shape only) + --ck-text
-                    label reproduces the same "never color alone" guarantee
-                    and holds AA on every surface. */}
+                {/* Not the tinted StatusBadge chip — used for layout
+                    density in this compact header, not because the chip
+                    fails AA here: as of Task 20's fix pass the chip
+                    clears AA on both --ck-surface and --ck-elevated (see
+                    ck-tokens.ts's ckChipStyle docblock). StatusGlyph
+                    (shape only) + --ck-text label reproduces the same
+                    "never color alone" guarantee and holds AA on every
+                    surface. */}
                 <span
                     role="status"
                     aria-label={STATUS_BADGE_META[RISK_STATUS[proposal.risk]].label}

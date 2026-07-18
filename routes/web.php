@@ -199,7 +199,12 @@ Route::middleware(['auth'])->group(function () {
         // AppServiceProvider::configureApiRateLimiting()).
         Route::post('upload', [PluginController::class, 'uploadStore'])->middleware('throttle:uploads')->name('upload.store');
         Route::post('upload/{token}/propose', [PluginController::class, 'uploadPropose'])->middleware('throttle:uploads')->name('upload.propose');
-        Route::post('install', [PluginController::class, 'proposeInstall'])->name('install');
+        // Task 20 fix pass: catalog-sourced install hits the same
+        // quarantine/hash pipeline as the manual-upload siblings above
+        // (App\Http\Controllers\PluginController::proposeInstall() ->
+        // the catalog fetch + install-proposal path) but was missing
+        // their 'uploads' rate limit.
+        Route::post('install', [PluginController::class, 'proposeInstall'])->middleware('throttle:uploads')->name('install');
 
         Route::get('operations/{operation}', [PluginController::class, 'operation'])->name('operations.show');
         Route::post('operations/{operation}/approve', [PluginController::class, 'approve'])->name('operations.approve');
