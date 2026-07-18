@@ -19,3 +19,11 @@ use Illuminate\Support\Facades\Broadcast;
 */
 
 Broadcast::channel('operations.{id}', fn (User $user, string $id): bool => true);
+
+/*
+| Task 11: the realtime console feed. Same reasoning as above — the only
+| gate that matters is "is there an authenticated session at all", which
+| Laravel's private-channel auth flow already enforces before this
+| callback ever runs.
+*/
+Broadcast::channel('server.console', fn (User $user): bool => true);

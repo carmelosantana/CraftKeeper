@@ -1774,3 +1774,202 @@ live Legendary-stack smoke test is the one place that happens in this
 project, and it MUST exercise RCON auth specifically (not just "the
 container comes up") for this fix to be considered production-verified
 rather than merely protocol-verified.
+
+## Task 11 — Server Status, Players, Logs, and Realtime Console
+
+**The tailing cursor (inode + byte offset) is persisted as a small JSON
+file under `{DATA_ROOT}/log-cursors/`, never in the database and never
+inside `/minecraft`.** `App\Server\LogTailService::tail()` is invoked
+fresh on every scheduler tick (a `$schedule->call()` closure running
+inside `schedule:work`'s long-lived process, but still re-entered from
+scratch every 2 seconds with no guaranteed in-memory continuity across
+ticks, and definitely none across a Supervisor restart), so anything the
+next tick needs to know MUST be durable. A database row was considered
+and rejected: the cursor is purely CraftKeeper's own internal
+bookkeeping, never queried by anything else, and putting it in SQLite
+would mean every 2-second tick either opens a transaction for a
+single-row upsert or risks the same crash-consistency question the file
+already has to answer anyway. The file lives under `DATA_ROOT` (never
+`/minecraft`) for the identical reason `App\Filesystem\AtomicFileWriter`
+keeps its lock files under `{DATA_ROOT}/locks/` (Task 6): CraftKeeper's
+own operational state does not belong inside the contained Minecraft
+root, and writing there would also require going through
+`MinecraftPath`'s containment machinery for no benefit.
+
+**Rotation and truncation are two INDEPENDENT checks, not one, because
+they are two different real-world events with two different signatures.**
+`resolveOffset()` checks (a) "has the inode changed?" (a rename-based
+rotation — the old inode is moved aside, a fresh one takes its place) and
+(b) "is the stored offset now past the current file's size?" (a
+truncate-in-place rotation strategy, e.g. `copytruncate`, or Minecraft's
+own occasional truncate-on-restart behavior) — independently, in that
+order, either one alone resetting the offset to 0. Initial mutation
+testing treated these as redundant (see below) and had to be corrected:
+a naive "rotate the log and check the offset resets" test still passed
+with the inode check disabled, because the truncation check happened to
+also catch it (the new, post-rotation file was smaller than the old
+offset in that first draft). The test was rewritten so the post-rotation
+file is deliberately PADDED LARGER than the pre-rotation offset,
+isolating the inode check as the only thing that can catch that specific
+case — then, and only then, did disabling the inode check produce a
+failing test. This is recorded here because it is exactly the kind of
+mistake that ships a false sense of coverage: two guards that overlap on
+every test case you happened to write are not two guards, they are one
+guard and a false positive.
+
+**Only COMPLETE, newline-terminated lines are ever consumed; the cursor
+offset only advances past the last `\n` found in a chunk, never past a
+trailing partial line.** This is the actual mechanism behind "never split
+a line being written into two corrupted fragments" — proven by mutation
+testing (changing the consumed-byte count from `$lastNewline + 1` to
+`strlen($chunk)` turns a correctly-deferred partial line into a visibly
+corrupted single-character line, `'!'`, in the test output). The first
+attempt at this mutation targeted the wrong branch (the `$lastNewline ===
+false` "no newline anywhere in the chunk" case) and the test still
+passed — a second, more revealing lesson that a mutation has to touch the
+line actually responsible for the property under test, not just a
+plausible-looking neighboring branch.
+
+**Ingestion is at-least-once, not exactly-once — a deliberate,
+disclosed trade-off in favor of "never drop a line."** Lines are
+persisted (`ConsoleEntry`), derived player events are recorded
+(`PlayerEvent`/`Player`), and the realtime broadcast is dispatched, all
+inside one `DB::transaction()`; the cursor file is only advanced AFTER
+that transaction commits. If the process is interrupted between the
+commit and the cursor write, the next tick re-reads the same bytes from
+the old (stale) offset and reprocesses them — duplicating a batch of
+`ConsoleEntry`/`PlayerEvent` rows rather than silently skipping them. A
+dedicated test (`LogTailServiceTest`, "re-ingests ... rather than skips")
+demonstrates this directly by rolling the cursor file back to its
+pre-commit state and confirming the same line reappears rather than
+vanishing. This was the one design fork closest to this task's own
+escalation trigger ("a race between rotate and read that could miss or
+duplicate lines"); it was resolved without escalating because the task
+brief itself names the priority explicitly ("Correctness on log
+parsing... never drop a line") and orders it above bounded storage/no
+duplication concerns, so a bounded, occasional, self-correcting
+duplication (the DB retains real rows; nothing corrupts) is the
+conservative choice, not a novel risk.
+
+**`App\Server\LogParser` defaults a platform-less join/leave/kick line to
+`PlayerPlatform::Java`, never `null` or a guess based on username
+shape.** The brief's ambiguity resolution #4 only ever names Bedrock
+detection "via Floodgate" — there is no other reliable signal in a
+standard vanilla/Paper log line. Since Floodgate always logs its own
+"Floodgate player logged in as X" line BEFORE the vanilla "X joined the
+game" line for any Bedrock player, Java is the statistically and
+causally correct default for a line that carries no platform signal of
+its own, and `App\Server\PlayerService::findOrCreatePlayer()` retroactively
+upgrades a `Player` row to Bedrock the moment a Floodgate line IS
+observed for that username (tested: `PlayerServiceTest`, "retroactively
+upgrades..."). No UUID/identity is ever looked up or synthesized —
+`LogEvent::$player` is always the literal username substring from the
+log line, verbatim.
+
+**`App\Server\ServerStatusService` never calls RCON itself — it only
+ever reads the most recent `App\Models\ServerSample` row, written by the
+independently-scheduled `SampleServerState` command.** This is what makes
+the "RCON down degrades only RCON-dependent data" guarantee structural
+rather than incidental: there is no code path in `ServerStatusService`
+that can block on, retry, or be affected by a live RCON call, because it
+never makes one. A sample older than `SAMPLE_FRESHNESS_SECONDS` (45s — a
+judgment call, roughly 3x the 15s poll interval, chosen so a couple of
+missed ticks don't immediately flip the UI to "unavailable" but a
+genuinely stalled sampler does) is treated as unavailable even if it was
+itself a successful sample — reporting a 10-minute-old player count as
+"current" would be a subtler form of the exact fabrication the brief
+prohibits. The log-file check is equally independent in the other
+direction: it does a direct `MinecraftPath::fromUserInput()` +
+`file_exists()`/`is_readable()` check against `logs/latest.log`, with no
+dependency on `LogTailService`'s cursor state at all — a log file that
+exists and is readable is reported `available` regardless of whether the
+tailer has processed a single byte of it yet.
+
+**`App\Server\RetryBackoff` implements the standard "full jitter"
+strategy — `delay = random(0, min(ceiling, base * 2^(failures-1)))` —
+with an injectable random source, defaulting to `mt_rand()`.** This is
+the same well-known formula from AWS's "Exponential Backoff and Jitter"
+article, chosen over "equal jitter" or "decorrelated jitter" variants for
+simplicity: the brief asks for "jitter and a 60-second ceiling," not a
+specific jitter shape, and full jitter is the simplest formula that
+provably never exceeds the ceiling (the multiplication only ever scales
+DOWN from the capped base). The exponent itself is separately clamped
+(`min($consecutiveFailures - 1, 32)`) before the `2 **` computation, so an
+arbitrarily large failure count can never produce an `INF`/overflow
+intermediate value before the final `min(..., CEILING_SECONDS)` clamp
+would otherwise catch it — defense in depth for a value that, per the
+scheduled command's own logic, only ever grows by one per 15-second tick
+and would take years to reach a value where this mattered, but costs
+nothing to guard properly.
+
+**`SampleServerState`'s dependencies (`RconClient`, `RetryBackoff`) are
+resolved via `handle()`-METHOD injection, not constructor injection — a
+real bug found and fixed during this task, not a stylistic preference.**
+Laravel's default `app/Console/Commands` auto-discovery
+(`Illuminate\Foundation\Configuration\ApplicationBuilder::withCommands()`,
+on by default, no opt-out used anywhere in this app) instantiates every
+command class once, eagerly, purely to read its `$signature` property and
+register it by name with the console `Application` — and this discovery
+fires on ANY console-kernel boot within the process, including
+`Illuminate\Foundation\Testing\RefreshDatabase`'s own internal `artisan
+migrate` call, which runs BEFORE the `settings` table exists for that
+test. A constructor-injected `RconClient` (whose `AppServiceProvider`
+binding calls `Setting::get('rcon.host')` at construction time) turned
+this into a `SQLSTATE[HY000]: no such table: settings` failure on EVERY
+test in the entire suite, not just this command's own — discovered when
+`PlayerServiceTest`, previously green, started failing immediately after
+`SampleServerState.php` was added to `app/Console/Commands/`. Laravel
+explicitly supports (and, for exactly this reason, recommends) resolving
+a command's collaborators as `handle(RconClient $client, RetryBackoff
+$backoff)` parameters instead: the container only resolves them at the
+moment `handle()` actually runs, which is always after the app — and, in
+tests, the database — is fully booted. `PruneServerObservationData` was
+never at risk (it takes no constructor dependencies at all), but this is
+recorded here as a general rule for any future command in this codebase:
+anything a command's constructor needs that could touch the database,
+the filesystem, or any other not-yet-ready subsystem belongs on
+`handle()`, never in `__construct()`.
+
+**`PruneServerObservationData` additionally age-prunes `ConsoleEntry`
+(24 hours) — a deliberate addition beyond the letter of ambiguity
+resolution #2, which names only `ServerSample` (7 days) and `PlayerEvent`
+(30 days).** `App\Server\LogTailService` already keeps `console_entries`
+bounded by ROW COUNT synchronously on every write
+(`MAX_CONSOLE_ENTRIES = 2000`, trimmed inside the same transaction as
+each batch's inserts), which is sufficient on its own to prevent
+unbounded growth. The daily AGE-based prune is a second, independent
+bound in the same spirit as the RCON client's own belt-and-suspenders
+design (Task 10: a byte cap AND a packet-count cap on response
+accumulation) — a server that goes quiet for weeks (no new console
+output, so the row-count trim never fires) would otherwise let very old
+"recent" console lines linger indefinitely, which contradicts "bounded
+recent buffer, not long-term storage" even though no single write ever
+exceeded 2000 rows.
+
+**Files beyond the brief's literal list, and why.** Mirroring Task 10's
+own precedent (`RconCommandService`/`RconCommandPayload`), several
+supporting types were necessary to make the ambiguity resolutions real
+rather than theoretical, none of them optional given the brief's own
+"Produces" contract (current health, bounded history, player events,
+parsed log entries, private console updates):
+`App\Server\LogEvent`/`LogEventKind`/`PlayerPlatform` (the parser's
+actual output shape — `LogParser::parse()` cannot return anything
+without them), `App\Server\RconStatus`/`LogStatus`/`ServerStatusSnapshot`
+(the per-source degraded-state DTOs `ServerStatusService::snapshot()`
+returns — this is the literal mechanism behind ambiguity resolution #5),
+`App\Server\TailCursor`/`TailOutcome` (the rotation/truncation cursor
+value object and the tail() call's own result type), `App\Server\
+RetryBackoff` (ambiguity resolution #1's jitter+ceiling requirement has
+no other home), and `App\Console\Commands\PruneServerObservationData`
+(ambiguity resolution #2 explicitly requires a "daily scheduled command"
+that does not appear in the brief's literal `Commands/` file list, which
+names only `SampleServerState.php`).
+
+**No metrics/Prometheus/tracing/long-term log storage was built, per
+ambiguity resolution #2's explicit exclusion.** `ServerSample` is a
+bounded 7-day rolling window of coarse `list`-derived counts, not a time
+series with configurable retention, aggregation, or a `/metrics`
+endpoint; `ConsoleEntry` is a bounded recent buffer, not a searchable log
+index — "arbitrary historical log search stays on disk," i.e. the
+Minecraft server's own log files, untouched and unindexed by
+CraftKeeper.

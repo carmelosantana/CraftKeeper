@@ -1,7 +1,11 @@
 <?php
 
+use App\Console\Commands\PruneServerObservationData;
+use App\Console\Commands\SampleServerState;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Server\LogTailService;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -36,4 +40,27 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
-    })->create();
+    })
+    ->withSchedule(function (Schedule $schedule): void {
+        // Task 11's ambiguity resolution #1: poll lightweight RCON state
+        // every 15 seconds while reachable. SampleServerState itself
+        // applies a jittered backoff (up to a 60s ceiling) once RCON goes
+        // unreachable, so this cadence is a CEILING on attempt frequency,
+        // not a guarantee every tick calls out over the network.
+        $schedule->command(SampleServerState::class)
+            ->everyFifteenSeconds()
+            ->withoutOverlapping();
+
+        // Realtime console tailing (ambiguity resolutions #3/#6): a
+        // bounded, purely local file read (<=256 KiB/iteration, no
+        // network), so it runs far more often than the RCON poll.
+        $schedule->call(fn () => app(LogTailService::class)->tail())
+            ->name('server:tail-logs')
+            ->everyTwoSeconds()
+            ->withoutOverlapping();
+
+        // Ambiguity resolution #2: bounded storage, no long-term
+        // retention — prune ServerSample/PlayerEvent/ConsoleEntry daily.
+        $schedule->command(PruneServerObservationData::class)->daily();
+    })
+    ->create();
