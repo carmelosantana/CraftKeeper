@@ -99,7 +99,35 @@ final class JarInspector
     {
         $path->reverifyContainment();
 
-        $absolute = $path->absolutePath;
+        return $this->inspectAbsolute($path->absolutePath, $path);
+    }
+
+    /**
+     * Inspects an archive OUTSIDE the Minecraft root — e.g. a quarantined
+     * download/upload sitting at {data_root}/quarantine/{token}/artifact.jar,
+     * awaiting an install/update decision (Task 15). Every hostile-safe
+     * defense on this class (declared-size-then-actual-bytes, entry-count
+     * cap, never extracting/executing anything) applies identically here;
+     * only WHERE the archive lives differs.
+     *
+     * $identity is embedded into the returned InspectedPlugin's `$path`
+     * purely as informational scaffolding to satisfy that value object's
+     * shape (e.g. App\Plugins\PluginCompatibilityService::evaluate() never
+     * reads it) — it is NEVER used to open, read, or otherwise touch any
+     * file; only $absoluteQuarantinePath is ever opened. Containment for
+     * $absoluteQuarantinePath is the CALLER's responsibility:
+     * App\Plugins\PluginDownloader/PluginUploadService only ever construct
+     * quarantine paths from a server-generated token (never from
+     * attacker-influenced input), so there is no user-controlled path to
+     * validate here the way MinecraftPath validates one for inspect().
+     */
+    public function inspectQuarantined(string $absoluteQuarantinePath, MinecraftPath $identity): InspectedPlugin
+    {
+        return $this->inspectAbsolute($absoluteQuarantinePath, $identity);
+    }
+
+    private function inspectAbsolute(string $absolute, MinecraftPath $path): InspectedPlugin
+    {
         $exists = file_exists($absolute) && filetype($absolute) === 'file';
 
         // Streamed from the raw file on disk (hash_file() reads and

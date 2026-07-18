@@ -57,4 +57,31 @@ return [
 
     'e2e_testing' => (bool) env('E2E_TESTING', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Plugin Lifecycle (Task 15)
+    |--------------------------------------------------------------------------
+    |
+    | Bounds for App\Plugins\PluginDownloader/PluginUploadService's
+    | quarantine step: a downloaded or uploaded artifact is streamed to
+    | {data_root}/quarantine/{token} with its SHA-256 computed DURING
+    | streaming, and refused outright past `max_artifact_bytes` — checked
+    | BOTH against any declared Content-Length header (before a single body
+    | byte is read) and against the running total of bytes actually read
+    | (which a dishonest/absent Content-Length cannot bypass), mirroring
+    | App\Plugins\JarInspector's own declared-size-then-actual-bytes
+    | defense. `rollback_retention_*` bound App\Console\Commands\
+    | PrunePluginRollbackArtifacts's daily prune of preserved JARs under
+    | {data_root}/plugin-rollbacks.
+    |
+    */
+
+    'plugins' => [
+        'max_artifact_bytes' => (int) env('PLUGIN_MAX_ARTIFACT_BYTES', 100 * 1024 * 1024),
+        'download_connect_timeout_seconds' => (int) env('PLUGIN_DOWNLOAD_CONNECT_TIMEOUT_SECONDS', 5),
+        'download_timeout_seconds' => (int) env('PLUGIN_DOWNLOAD_TIMEOUT_SECONDS', 60),
+        'rollback_retention_count' => (int) env('PLUGIN_ROLLBACK_RETENTION_COUNT', 3),
+        'rollback_retention_days' => (int) env('PLUGIN_ROLLBACK_RETENTION_DAYS', 30),
+    ],
+
 ];

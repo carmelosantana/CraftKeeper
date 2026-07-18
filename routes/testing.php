@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\E2ePluginFixtureController;
 use App\Http\Controllers\E2eResetController;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -49,4 +50,24 @@ if (E2eResetController::allowed()) {
             ShareErrorsFromSession::class,
         ])
         ->name('e2e.reset');
+
+    // Task 15: serves the real, deterministic e2e fixture plugin jar
+    // bytes App\Testing\E2eFixturePluginSource's release() download URLs
+    // point at — see App\Http\Controllers\E2ePluginFixtureController's
+    // docblock. `->where('version', '[^/]+')` is REQUIRED, not cosmetic:
+    // Symfony's route compiler restricts the LAST parameter's default
+    // regex to exclude "." whenever it is immediately followed by a
+    // literal "." in the route pattern (its own `{param}.{_format}`-style
+    // convention support) — without this override, a version like
+    // "1.0.0" (more than one dot) silently 404s even though the route is
+    // registered, confirmed empirically via Route::getRoutes()->match().
+    Route::get('__e2e__/fixtures/plugins/{version}.jar', E2ePluginFixtureController::class)
+        ->where('version', '[^/]+')
+        ->withoutMiddleware([
+            StartSession::class,
+            EncryptCookies::class,
+            PreventRequestForgery::class,
+            ShareErrorsFromSession::class,
+        ])
+        ->name('e2e.fixtures.plugin');
 }

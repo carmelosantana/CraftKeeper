@@ -8,6 +8,7 @@ use App\Models\ChangeProposal;
 use App\Models\ConfigChangePayload;
 use App\Models\Operation;
 use App\Models\OperationStep;
+use App\Models\PluginOperationPlan;
 use App\Models\RconCommandPayload;
 use App\Models\User;
 use App\Operations\Exceptions\IllegalOperationTransition;
@@ -148,6 +149,18 @@ class OperationService
             // secret-shaped rcon.command whose raw text was stashed by
             // App\Console\RconCommandService::proposeCommand().
             RconCommandPayload::deleteForOperation($operation->id);
+
+            // Symmetric again, for Task 15's plugin install/update plans
+            // (App\Models\PluginOperationPlan): a rejected plugin.install/
+            // update never executes, so its quarantined artifact — a
+            // potentially large JAR sitting under {data_root}/quarantine —
+            // is dead weight the instant it's rejected, same reasoning as
+            // the two calls above. A no-op for every non-plugin operation
+            // type, and for plugin.disable/remove/rollback (which never
+            // stage a quarantine file in the first place). Only the
+            // on-disk quarantine FILE is deleted here, never the plan row
+            // itself — see that method's own docblock.
+            PluginOperationPlan::cleanupQuarantineForOperation($operation->id);
 
             $this->audit($operation, 'operation.rejected', $author, ['reason' => $reason]);
             $this->broadcast($operation);

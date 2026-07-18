@@ -23,11 +23,13 @@ createInertiaApp({
             case name === 'Activity':
             case name.startsWith('config/'):
             case name.startsWith('server/'):
-                // config/*, server/*, Overview, and Activity all wrap
-                // themselves in the CraftKeeper AppShell (Task 3) directly,
-                // the same way DesignSystem does — the starter kit's own
-                // AppLayout below is a different, pre-CraftKeeper sidebar
-                // shell that these pages must not be double-wrapped in.
+            case name.startsWith('plugins/'):
+                // config/*, server/*, plugins/*, Overview, and Activity all
+                // wrap themselves in the CraftKeeper AppShell (Task 3)
+                // directly, the same way DesignSystem does — the starter
+                // kit's own AppLayout below is a different, pre-CraftKeeper
+                // sidebar shell that these pages must not be double-wrapped
+                // in.
                 return null;
             case name.startsWith('auth/'):
             case name.startsWith('onboarding/'):

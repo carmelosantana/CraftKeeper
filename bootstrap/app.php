@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\PrunePluginRollbackArtifacts;
 use App\Console\Commands\PruneServerObservationData;
 use App\Console\Commands\SampleServerState;
 use App\Http\Middleware\HandleAppearance;
@@ -62,5 +63,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Ambiguity resolution #2: bounded storage, no long-term
         // retention — prune ServerSample/PlayerEvent/ConsoleEntry daily.
         $schedule->command(PruneServerObservationData::class)->daily();
+
+        // Task 15's ambiguity resolution #3: keep 3 preserved plugin
+        // rollback artifacts per plugin for 30 days, pruned daily.
+        $schedule->command(PrunePluginRollbackArtifacts::class)->daily();
     })
     ->create();

@@ -7,6 +7,7 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OverviewController;
+use App\Http\Controllers\PluginController;
 use App\Http\Controllers\ServerController;
 use App\Http\Middleware\RequireInstallation;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -109,6 +110,35 @@ Route::middleware(['auth'])->group(function () {
         Route::get('history/{path}', [ConfigController::class, 'history'])->where('path', '.*')->name('history');
         Route::post('{path}', [ConfigController::class, 'propose'])->where('path', '.*')->name('propose');
         Route::get('{path}', [ConfigController::class, 'edit'])->where('path', '.*')->name('edit');
+    });
+
+    // Task 15: plugin discovery, installed inventory/detail, manual
+    // upload, and the full plugin.* operation lifecycle. Literal-prefixed
+    // routes (discover, upload, install, operations/*) are registered
+    // BEFORE the two `{filename}` wildcards, matching Task 9's
+    // ConfigController convention — a real installed plugin's filename
+    // (App\Plugins\PluginInventoryService scans `plugins/` NON-recursively,
+    // so a relative_path is always exactly "plugins/{filename}", never
+    // containing another "/") would need to literally be named e.g.
+    // "discover" or "operations" to collide, which no real .jar ever is.
+    Route::prefix('plugins')->name('plugins.')->group(function () {
+        Route::get('/', [PluginController::class, 'index'])->name('index');
+        Route::get('discover', [PluginController::class, 'discover'])->name('discover');
+        Route::get('upload', [PluginController::class, 'uploadForm'])->name('upload');
+        Route::post('upload', [PluginController::class, 'uploadStore'])->name('upload.store');
+        Route::post('upload/{token}/propose', [PluginController::class, 'uploadPropose'])->name('upload.propose');
+        Route::post('install', [PluginController::class, 'proposeInstall'])->name('install');
+
+        Route::get('operations/{operation}', [PluginController::class, 'operation'])->name('operations.show');
+        Route::post('operations/{operation}/approve', [PluginController::class, 'approve'])->name('operations.approve');
+        Route::post('operations/{operation}/reject', [PluginController::class, 'reject'])->name('operations.reject');
+        Route::post('operations/{operation}/rollback', [PluginController::class, 'rollbackOperation'])->name('operations.rollback');
+
+        Route::get('{filename}', [PluginController::class, 'show'])->name('show');
+        Route::post('{filename}/update', [PluginController::class, 'proposeUpdate'])->name('update');
+        Route::post('{filename}/disable', [PluginController::class, 'proposeDisable'])->name('disable');
+        Route::post('{filename}/remove', [PluginController::class, 'proposeRemove'])->name('remove');
+        Route::post('{filename}/rollback', [PluginController::class, 'proposeRollback'])->name('rollback');
     });
 });
 

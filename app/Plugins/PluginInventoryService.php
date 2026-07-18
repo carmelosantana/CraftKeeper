@@ -46,6 +46,28 @@ final class PluginInventoryService
 
     public function __construct(private readonly JarInspector $inspector) {}
 
+    /**
+     * A read-only snapshot of every currently-discoverable plugin's
+     * JarInspector reading, WITHOUT writing anything to
+     * plugin_installations — Task 15's App\Plugins\PluginLifecycleService
+     * uses this to build a fresh App\Plugins\PluginDependencyGraph (via
+     * PluginDependencyGraph::build()) when assessing a candidate
+     * install/update's compatibility against what is ACTUALLY on disk
+     * right now, without needing reconcile()'s side effects (and without
+     * duplicating scan()'s own discovery logic here).
+     *
+     * @return list<InspectedPlugin>
+     */
+    public function currentInspections(): array
+    {
+        [$discovered] = $this->scan();
+
+        return array_map(
+            fn (DiscoveredPlugin $entry): InspectedPlugin => $entry->inspection,
+            $discovered,
+        );
+    }
+
     public function reconcile(): PluginReconciliation
     {
         [$discovered, $pathConflicts] = $this->scan();

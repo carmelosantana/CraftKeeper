@@ -191,19 +191,23 @@ it('allows the documented rollback path from both Succeeded and Failed', functio
 it('degrades cleanly to Failed with a typed error code when no handler is registered', function () {
     $admin = User::factory()->create();
 
-    // ConfigApply/ConfigRestore have real handlers as of Task 8, and
-    // RconCommand/ServerStop as of Task 10 (see
-    // App\Providers\AppServiceProvider); every plugin.* type still has
-    // none until Task 15, so pluginRemove() remains a faithful
-    // "no handler" example here.
-    $operation = app(OperationService::class)->propose(
+    // As of Task 15, every OperationType has a real handler registered in
+    // the app container (see App\Providers\AppServiceProvider) — there is
+    // no longer a "safe" type that's simply unregistered by coincidence.
+    // This test now proves the seam itself, independent of which handlers
+    // happen to be tagged: a bare OperationService built around a
+    // deliberately EMPTY OperationHandlerRegistry (never resolved from the
+    // container) can never find a handler for any type at all.
+    $service = new OperationService(new OperationHandlerRegistry);
+
+    $operation = $service->propose(
         OperationRequest::pluginRemove('example-plugin'),
         OperationAuthor::user($admin->id)
     );
 
-    app(OperationService::class)->approve($operation->id, $admin);
+    $service->approve($operation->id, $admin);
 
-    $result = app(OperationService::class)->execute($operation->id);
+    $result = $service->execute($operation->id);
 
     expect($result->status)->toBe(OperationStatus::Failed)
         ->and($result->error_code)->toBe('operation.no_handler_registered')
@@ -211,15 +215,17 @@ it('degrades cleanly to Failed with a typed error code when no handler is regist
 });
 
 it('never throws when executing an operation type with no registered handler', function () {
+    $service = new OperationService(new OperationHandlerRegistry);
     $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginRemove)->create();
 
-    expect(fn () => app(OperationService::class)->execute($operation->id))->not->toThrow(Throwable::class);
+    expect(fn () => $service->execute($operation->id))->not->toThrow(Throwable::class);
 });
 
 it('records an execution step alongside the failed operation when no handler is registered', function () {
+    $service = new OperationService(new OperationHandlerRegistry);
     $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginRemove)->create();
 
-    app(OperationService::class)->execute($operation->id);
+    $service->execute($operation->id);
 
     $step = $operation->fresh()->steps()->sole();
 
@@ -228,10 +234,11 @@ it('records an execution step alongside the failed operation when no handler is 
 });
 
 it('runs a registered handler and preserves its diagnostic error code on failure', function () {
-    // Uses PluginInstall (no real handler until Task 15) rather than
-    // ConfigApply, which Task 8 gave a real handler that would otherwise
-    // resolve ahead of this test's own fake one — see
-    // OperationHandlerRegistry::resolve()'s "first match wins" contract.
+    // Built around its OWN isolated registry (never the real, container-
+    // tagged one — see the preceding tests' docblock) so this proves
+    // "OperationService defers entirely to whatever handler resolve()
+    // returns" without depending on which OperationType, if any, still
+    // lacks a real handler in the full application.
     $handler = new class implements OperationHandler
     {
         public function supports(OperationType $type): bool
@@ -250,11 +257,13 @@ it('runs a registered handler and preserves its diagnostic error code on failure
         }
     };
 
-    app(OperationHandlerRegistry::class)->register($handler);
+    $registry = new OperationHandlerRegistry;
+    $registry->register($handler);
+    $service = new OperationService($registry);
 
     $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginInstall)->create();
 
-    $result = app(OperationService::class)->execute($operation->id);
+    $result = $service->execute($operation->id);
 
     expect($result->status)->toBe(OperationStatus::Failed)
         ->and($result->error_code)->toBe('config.hash_mismatch');
@@ -279,15 +288,13 @@ it('converts an exception thrown by a handler into a failed operation instead of
         }
     };
 
-    app(OperationHandlerRegistry::class)->register($handler);
+    $registry = new OperationHandlerRegistry;
+    $registry->register($handler);
+    $service = new OperationService($registry);
 
-    // PluginUpdate (no real handler until Task 15) rather than the
-    // default ConfigApply, which Task 8's own handler — and, as of Task
-    // 10, RconCommand/ServerStop's real handlers — would otherwise
-    // resolve ahead of this test's "supports everything" fake.
     $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginUpdate)->create();
 
-    expect(fn () => app(OperationService::class)->execute($operation->id))->not->toThrow(Throwable::class);
+    expect(fn () => $service->execute($operation->id))->not->toThrow(Throwable::class);
 
     $result = $operation->fresh();
     expect($result->status)->toBe(OperationStatus::Failed)
@@ -313,13 +320,13 @@ it('runs a registered handler and transitions to Succeeded', function () {
         }
     };
 
-    app(OperationHandlerRegistry::class)->register($handler);
+    $registry = new OperationHandlerRegistry;
+    $registry->register($handler);
+    $service = new OperationService($registry);
 
-    // Same reasoning as the preceding test: PluginDisable still has no
-    // real handler, so this test's own fake is the only one that resolves.
     $operation = Operation::factory()->status(OperationStatus::Approved)->ofType(OperationType::PluginDisable)->create();
 
-    $result = app(OperationService::class)->execute($operation->id);
+    $result = $service->execute($operation->id);
 
     expect($result->status)->toBe(OperationStatus::Succeeded)
         ->and($result->error_code)->toBeNull()

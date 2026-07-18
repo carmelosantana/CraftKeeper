@@ -78,7 +78,7 @@ export default defineConfig({
     webServer: {
         command:
             `rm -rf ${E2E_MINECRAFT_ROOT} && mkdir -p ${E2E_MINECRAFT_ROOT} && cp -r tests/fixtures/minecraft/. ${E2E_MINECRAFT_ROOT}/ && ` +
-            `php artisan migrate:fresh --force && npm run build && php artisan serve --host=${HOST} --port=${PORT}`,
+            `php artisan migrate:fresh --force && npm run build && php artisan serve --no-reload --host=${HOST} --port=${PORT}`,
         url: `http://${HOST}:${PORT}/up`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
@@ -99,6 +99,18 @@ export default defineConfig({
             // hard-codes APP_ENV=production — and the controller
             // re-checks both conditions itself before doing anything.
             E2E_TESTING: 'true',
+            // Task 15: PHP's built-in dev server (what `artisan serve`
+            // wraps) handles exactly one request at a time by default —
+            // fine for every prior spec, but tests/e2e/plugins.spec.ts
+            // exercises a SELF-REFERENTIAL download (App\Plugins\
+            // PluginDownloader fetching a same-origin e2e fixture jar
+            // from App\Http\Controllers\E2ePluginFixtureController,
+            // mid-request, while handling the outer install/update
+            // request) — with only one worker that deadlocks the server
+            // against itself. `--no-reload` is required for Laravel's
+            // ServeCommand to honor PHP_CLI_SERVER_WORKERS at all (it
+            // warns and silently falls back to one otherwise).
+            PHP_CLI_SERVER_WORKERS: '4',
         },
     },
 });

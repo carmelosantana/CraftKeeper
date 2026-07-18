@@ -11,13 +11,17 @@ use App\Console\RconClient;
 use App\Console\StreamRconTransport;
 use App\Filesystem\LocalMinecraftFilesystem;
 use App\Filesystem\MinecraftFilesystem;
+use App\Http\Controllers\E2eResetController;
+use App\Http\Controllers\PluginController;
 use App\Models\Secret;
 use App\Models\Setting;
 use App\Operations\Handlers\ConfigApplyHandler;
 use App\Operations\Handlers\ConfigRestoreHandler;
+use App\Operations\Handlers\PluginOperationHandler;
 use App\Operations\Handlers\RconCommandHandler;
 use App\Operations\Handlers\ServerStopHandler;
 use App\Operations\OperationHandlerRegistry;
+use App\Testing\E2eFixturePluginSource;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -33,15 +37,18 @@ class AppServiceProvider extends ServiceProvider
     {
         // OperationHandlerRegistry is built from every service tagged
         // 'operation.handler'. Task 8 registered the first two concrete
-        // handlers here; Task 10 adds RconCommandHandler/ServerStopHandler
-        // the same way; Task 15 registers plugin.* handlers the same way
-        // too. See App\Operations\OperationHandlerRegistry's docblock for
-        // the full extension convention.
+        // handlers here; Task 10 added RconCommandHandler/ServerStopHandler
+        // the same way; Task 15 registers PluginOperationHandler (a single
+        // handler supporting all five plugin.* types — see its own
+        // supports()) the same way too. See App\Operations\
+        // OperationHandlerRegistry's docblock for the full extension
+        // convention.
         $this->app->tag([
             ConfigApplyHandler::class,
             ConfigRestoreHandler::class,
             RconCommandHandler::class,
             ServerStopHandler::class,
+            PluginOperationHandler::class,
         ], 'operation.handler');
 
         $this->app->singleton(OperationHandlerRegistry::class, fn ($app) => new OperationHandlerRegistry(
@@ -78,14 +85,42 @@ class AppServiceProvider extends ServiceProvider
         // convention as 'operation.handler' above. Order here is NOT
         // significant to search results (App\Catalog\UnifiedCatalogService
         // sorts deterministically on its own criteria — see its
-        // docblock — never on source registration order).
+        // docblock — never on source registration order), but IS
+        // significant to App\Http\Controllers\PluginController::
+        // resolveSource() (first match by PluginProvenance wins) — which
+        // is exactly why the e2e-only substitution below REPLACES
+        // CraftKeeperCatalogSource rather than adding a second
+        // PluginProvenance::Catalog source alongside it (two sources
+        // answering for the same key would make which one resolves()
+        // install/update requests depend on registration order, an
+        // ambiguity this avoids entirely).
+        //
+        // App\Testing\E2eFixturePluginSource is substituted for the real
+        // CraftKeeperCatalogSource ONLY under the IDENTICAL environment +
+        // E2E_TESTING flag guard every other e2e-only surface in this
+        // application uses (App\Http\Controllers\E2eResetController::
+        // allowed()) — never in production, and never in the PHP test
+        // suite (which fakes HTTP directly instead). It exists so
+        // Playwright, which drives a real running server with no
+        // Http::fake() available, can install/update a real, same-origin,
+        // deterministic release through the actual UI — see that class's
+        // docblock.
         $this->app->tag([
-            CraftKeeperCatalogSource::class,
+            E2eResetController::allowed() ? E2eFixturePluginSource::class : CraftKeeperCatalogSource::class,
             HangarSource::class,
             ModrinthSource::class,
         ], 'catalog.source');
 
         $this->app->when(UnifiedCatalogService::class)
+            ->needs('$sources')
+            ->give(fn ($app) => $app->tagged('catalog.source'));
+
+        // Task 15's App\Http\Controllers\PluginController resolves a
+        // SPECIFIC source by identity (never trusting a client-supplied
+        // download URL/checksum — see its class docblock), so it needs
+        // the same tagged set UnifiedCatalogService gets, via the same
+        // contextual-binding convention.
+        $this->app->when(PluginController::class)
             ->needs('$sources')
             ->give(fn ($app) => $app->tagged('catalog.source'));
     }

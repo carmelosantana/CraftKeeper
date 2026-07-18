@@ -2824,3 +2824,200 @@ backoff-window case, failed exactly once across many full-suite runs and
 passed both standalone and on every other full-suite run — a pre-existing
 timing-sensitive flake in Task 10/12's territory, not this task's; this
 task touches no RCON/server-observation code.
+
+## Task 15 — Safe Plugin Lifecycle and Plugin Management UI
+
+**The brief's Step-1 test snippet uses an illustrative, out-of-date
+`PluginRelease::fromArray()` shape.** The brief's literal test builds a
+release via `PluginRelease::fromArray(['id' => 'catalog:example:1.0.0', ...])`
+— a flat string id and snake_case keys. Task 14's REAL
+`App\Catalog\Data\PluginRelease::fromArray()` expects a nested
+`{source, projectId, version}` array for `id` (via `PluginReleaseId::
+fromArray()`) and camelCase keys throughout, plus several more required
+fields (`slug`, `projectUrl`, `dependencies`, `withdrawn`, `signature`, …)
+that predate the brief and didn't exist when it was written. Adapted the
+test to build a `PluginRelease` through its real constructor (via a
+shared `Tests\Support\Plugins\PluginReleaseFactory`, since Pest/PHPUnit's
+single-process execution would fatal on two test files declaring the
+same top-level helper function) — same intent (Http::fake() returns
+wrong bytes → checksum mismatch), real shape.
+
+**Quarantine cleanup: chose (a), mirror the per-handler pattern —
+generalizing `OperationService`'s payload-cleanup coupling was judged
+not clean enough to be worth it.** `App\Models\PluginOperationPlan::
+cleanupQuarantineForOperation()` deletes only the on-disk quarantine
+FILE (never the plan row, which is kept for history/audit — unlike
+`ConfigChangePayload`, nothing in a plugin plan is secret-shaped, so
+there's no confidentiality reason to delete it). Called from two places,
+symmetric with `ConfigChangePayload`/`RconCommandPayload`'s existing
+convention: `App\Operations\Handlers\PluginOperationHandler::execute()`'s
+`finally` block (every terminal outcome — Succeeded or Failed) and
+`App\Operations\OperationService::reject()` (a third line added
+alongside the two existing payload-cleanup calls, which that method's
+own docblock already documents as the sanctioned extension point for
+exactly this). Considered generalizing into a reusable "operation
+terminal" event/hook (removing `OperationService`'s direct
+`ConfigChangePayload`/`RconCommandPayload` coupling) but two concrete
+call sites with near-identical one-line bodies didn't justify the extra
+indirection; revisit if a fourth payload type arrives.
+
+**The dual "rollback" design: `OperationType::PluginRollback` (a fresh,
+user-proposed restore) vs. `OperationHandler::rollback()` (undo the
+specific operation just executed) are deliberately two different
+mechanisms, not one.** Every `execute()` path that changes bytes on disk
+(install/update/remove, and a `plugin.rollback` operation itself) FIRST
+preserves whatever is currently at the target path via
+`App\Plugins\PluginRollbackStore::preserve()`, and records that
+preserved artifact's id on `plugin_operation_plans.rollback_artifact_id`
+— so `PluginOperationHandler::rollback()` (invoked by
+`OperationService::rollback()`, a separate lifecycle action from
+proposing a fresh `plugin.rollback`) can always restore it generically,
+regardless of which of the four other operation types it's undoing.
+Disable is the one exception (never moves bytes, so its own undo is
+just the reverse rename). This is what makes every lifecycle change
+reversible — not only the ones an operator explicitly re-proposes.
+
+**Install filename convention (undocumented by the brief): prefers the
+catalog release's own name/slug over the jar-internal declared name.**
+`App\Plugins\PluginLifecycleService::deriveInstallFilename()` picks, in
+order: the release's `name`, then its `slug`, then (manual upload only)
+the archive's own inspected `name`, then finally the quarantine token.
+Chosen because the target filename must be knowable to build the install
+plan's identity (`MinecraftPath`) BEFORE the archive is even trusted to
+be well-formed, and stays stable across an update (the same release
+identity always derives the same filename).
+
+**Known gap, disclosed rather than silently worked around: an installed
+plugin carries no stored catalog project identity, so there is no
+"check for updates" button on the Show/detail page.**
+`App\Models\PluginInstallation` (Task 13's schema) has no
+`catalog_source`/`catalog_project_id` columns — only a coarse
+`provenance` string and a `name`, matching `App\Catalog\
+InstalledPluginIndex`'s own name-based (not id-based) correlation for
+sort ranking. Re-deriving "the latest version of THIS installed plugin"
+therefore has no reliable identity to look up by. The Show page instead
+links to Discover, pre-filtered by name; Discover's own "Install" button
+becomes "Check for update" for an already-installed match and asks its
+source for `version: null` ("the source's own notion of latest" —
+`PluginReleaseId`'s own documented convention) rather than blindly
+re-installing the exact summary version a search result happens to
+show — `App\Http\Controllers\PluginController::proposeInstall()` then
+transparently resolves this into a `plugin.update` proposal against the
+existing installation (matched by name) rather than a stray second
+install. A real fix (storing catalog identity at install time) is a
+Task 13 schema change out of this task's scope.
+
+**"Restart required" stays visible until a server start is OBSERVED —
+defined here, since Task 11 has no purpose-built "server just
+restarted" signal.** `App\Plugins\PluginLifecycleService::
+isRestartObserved()` reads `App\Models\ServerSample` (Task 11's 15-second
+RCON poll) for a genuine DOWN-then-UP transition strictly after the
+operation's `finished_at`: the first `rcon_reachable=true` sample after
+that timestamp only counts if the sample immediately preceding it was
+`rcon_reachable=false`. Deliberately NOT "RCON is currently reachable"
+alone — that would be true even if the server never restarted at all,
+which is exactly the kind of fabricated-positive "no fabricated zero"
+(Task 11/12's own principle, applied here to a restart signal instead of
+a player count) this avoids.
+
+**Two real bugs found only by manually smoke-testing the e2e fixture
+route before trusting Playwright to prove anything, both fixed:**
+
+1. Symfony's route compiler restricts a route's LAST parameter's default
+   regex to exclude `.` whenever it is immediately followed by a literal
+   `.` in the pattern (its own `{param}.{_format}`-style convention
+   support). `Route::get('__e2e__/fixtures/plugins/{version}.jar', ...)`
+   therefore silently 404'd for any version containing more than one dot
+   (e.g. "1.0.0") even though `route:list` showed the route registered —
+   confirmed via `Route::getRoutes()->match()` in isolation before
+   finding the cause. Fixed with an explicit
+   `->where('version', '[^/]+')`.
+2. PHP's built-in dev server (what `artisan serve` wraps, used by
+   `playwright.config.ts`'s `webServer`) handles exactly one request at a
+   time by default. `tests/e2e/plugins.spec.ts` is the first e2e spec to
+   need a SELF-REFERENTIAL HTTP call — `App\Plugins\PluginDownloader`
+   fetching a same-origin e2e fixture jar
+   (`App\Http\Controllers\E2ePluginFixtureController`) from INSIDE the
+   request handling an install/update proposal — which deadlocks a
+   single-worker server against itself (the outer request can never
+   finish because it's blocked waiting for an inner request the same,
+   sole worker can't yet accept). Fixed by adding `--no-reload` and
+   `PHP_CLI_SERVER_WORKERS=4` to `playwright.config.ts`'s `webServer`
+   command/env (Laravel's `ServeCommand` only honors that env var with
+   `--no-reload`) — verified this doesn't affect any other spec file by
+   re-running the full `npm run e2e` suite (36/36 pass) after the change.
+
+**`App\Testing\E2eFixturePluginSource`/`E2ePluginFixtures`/
+`E2ePluginFixtureController` — same-origin, fully controllable catalog
+source and download endpoint, gated identically to
+`E2eResetController`.** Playwright drives a real running server with no
+`Http::fake()` available, so proving "a mismatched download never
+reaches /minecraft" and "an update failure leaves the installed artifact
+intact" through actual browser clicks (not simulated) needed a real,
+deterministic, same-origin release to install/update. Registered by
+SUBSTITUTING `CraftKeeperCatalogSource` (never adding a second source
+alongside it — two sources both answering `PluginProvenance::Catalog`
+would make which one `PluginController::resolveSource()` resolves depend
+on registration order) in `App\Providers\AppServiceProvider::register()`,
+guarded by the exact same `E2eResetController::allowed()` check every
+other e2e-only surface in this application uses — never reachable in
+production, never exercised by the PHP test suite (which fakes HTTP
+directly instead). Jar bytes are built via `ZipArchive` with an
+EXPLICIT pinned entry mtime (`setMtimeName()`); confirmed empirically
+that `ZipArchive::addFromString()` otherwise embeds a wall-clock-derived
+timestamp that differs across separate PHP processes, which would make
+the catalog's declared checksum (computed in one request) drift from
+the download route's later-served bytes (a different request/process)
+without ever being a REAL integrity problem — the fix removes a
+false-mismatch risk in the fixture itself, not in the product code it
+tests.
+
+**`PluginInventoryService::reconcile()` needed a first real caller —
+this task is it.** Task 13 built `reconcile()` (disk-vs-database sync)
+but deliberately left "when it runs" to whichever task built the first
+real reader of `plugin_installations`. `App\Http\Controllers\
+PluginController::index()/show()/discover()` each call it before
+reading, mirroring `App\Http\Controllers\ConfigController::index()`'s
+own "always discover fresh, never trust a stale row" philosophy — this
+is what makes a just-completed install/update/disable/remove/rollback
+(or any out-of-band change to `plugins/`) immediately visible without a
+scheduled job in between. Found via the e2e install test: without this,
+`plugin_installations` never picked up the just-installed jar's real
+name, and Discover's "already installed" detection (name-based) never
+fired.
+
+**Five pre-existing generic-plumbing tests
+(`OperationServiceTest`/`OperationHandlerRegistryTest`) assumed a
+plugin.* `OperationType` would always be a safe "nothing registered"
+placeholder — no longer true once this task registers
+`PluginOperationHandler` for all five.** Those tests' own comments
+already flagged this as a ticking clock ("no real handler until Task
+15"). Fixed by decoupling them from the real, container-tagged
+`OperationHandlerRegistry` entirely: each now builds its own isolated
+`new OperationHandlerRegistry` (empty, or seeded with only that test's
+own fake handler) and a matching `new OperationService($registry)`,
+rather than resolving either from `app()`. This is strictly more robust
+than the type they previously borrowed — it no longer depends on any
+`OperationType` remaining perpetually unregistered, which nothing in
+the codebase's shape actually guarantees going forward.
+`OperationHandlerRegistryTest`'s own "binds every registered handler"
+test was extended (not just patched) to assert `PluginOperationHandler`
+resolves for all five plugin.* types.
+
+**Gates, run for real:** `php artisan test tests/Feature/Plugins
+tests/Feature/Http/PluginControllerTest.php` (52 tests, all passing — 5
+`PluginDownloaderTest` + 2 `PluginUploadServiceTest` + 11
+`PluginLifecycleServiceTest` + 9 `PluginOperationHandlerTest` + 3
+`PrunePluginRollbackArtifactsTest` + 9 `PluginControllerTest`, plus the
+pre-existing 13 `PluginInventoryServiceTest` cases in the same directory
+still green, unmodified). `composer test` (657 tests total — 647 passed,
+10 pre-existing skips, 0 failures; PHPStan level 7 clean; Pint clean).
+`npm run typecheck` (clean). `npm run build` (succeeds, new plugin pages
+bundle correctly, code-split per route). `npm run test` (Vitest, 14/14,
+unaffected). `npm run e2e` (Playwright, full suite: **36/36 passing**,
+including all 6 new `tests/e2e/plugins.spec.ts` cases: real discovery +
+install with a checksum-verified atomic write, a real checksum-mismatch
+refusing an update while leaving the installed artifact byte-identical,
+manual upload findings-before-proposal, restart-required + rollback
+controls visible and axe-clean on both desktop and mobile viewports,
+and disable→`.jar.disabled` behind a guarded confirm step).
