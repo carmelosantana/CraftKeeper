@@ -26,6 +26,13 @@
 # Full scan results, at every severity and including everything ignored here,
 # are still uploaded to the repository's Security tab on every release.
 #
+# HOW THIS FILE IS LOADED: image.yml points Trivy at it with the
+# TRIVY_IGNOREFILE environment variable, NOT the trivy-action `trivyignores:`
+# input. That input concatenates whatever it is given into a plain-text
+# .trivyignore whose lines must be bare CVE IDs; handed this YAML it fails
+# silently, matching nothing. If you switch back to that input, convert this
+# file to one-CVE-per-line and you will lose the expiry dates below.
+#
 # MAINTENANCE: each entry expires. On expiry the scan fails again and the
 # entry must be re-justified rather than silently inherited — these should
 # disappear on their own as the base image picks up a newer linux-libc-dev.

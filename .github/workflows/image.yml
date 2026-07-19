@@ -273,8 +273,22 @@ jobs:
       # The scan still runs at full breadth — every severity, including
       # everything ignored here, is uploaded to the Security tab by the next
       # step. Only the *blocking* set is narrowed to what we can act on.
+      # TRIVY_IGNOREFILE is set through `env:` rather than the action's
+      # `trivyignores:` input. That input concatenates the files it is given
+      # into a single PLAIN-TEXT .trivyignore, where each line is expected to
+      # be a bare CVE ID. Handing it a YAML file does not error — the YAML is
+      # simply parsed as a list of CVE-ID-shaped lines, matches nothing, and
+      # every entry is silently ignored. v1.0.1 failed this gate for exactly
+      # that reason, with the same 4 findings the file was meant to cover.
+      #
+      # Trivy's own TRIVY_IGNOREFILE variable takes the path directly and
+      # applies the real YAML parser, which is what makes the `expiredAt`
+      # dates in .trivyignore.yaml meaningful. Verified against the published
+      # v1.0.1 image: exit 0 with this set, exit 1 without it.
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: ${{ github.workspace }}/.trivyignore.yaml
         with:
           image-ref: ${{ needs.build-and-push.outputs.image_ref }}
           format: sarif
@@ -282,7 +296,6 @@ jobs:
           severity: CRITICAL,HIGH
           scanners: vuln
           ignore-unfixed: true
-          trivyignores: .trivyignore.yaml
           exit-code: '1'
 
       - name: Upload SARIF to Security tab
