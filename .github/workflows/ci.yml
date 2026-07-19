@@ -327,16 +327,49 @@ jobs:
   integration:
     name: Integration (docker-compose.integration.yml)
     runs-on: ubuntu-latest
+    # This job hung for 2h35m on its first real run and would have burned the
+    # full 6-hour default. A bounded failure is always better than an
+    # unbounded one — the stack completes in well under 30 minutes when
+    # healthy.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
+      # NOT `up --abort-on-container-exit --exit-code-from tests`. That form
+      # hung indefinitely: the tests container ran all 10 scenarios, printed
+      # ALL SCENARIOS PASSED, and exited 0 — and compose still never returned,
+      # because the long-lived craftkeeper and fake-rcon services stayed up and
+      # healthy. Reproduced locally on Compose v5.3.1 with the stack in a
+      # stable state (tests exited, others healthy, no restart policies).
+      #
+      # Starting detached and blocking on the tests container's exit code is
+      # deterministic and does not depend on compose's abort semantics: `docker
+      # wait` returns exactly when that container stops, and prints its status.
       - name: Run the 10-scenario integration stack
         run: |
-          docker compose -f docker-compose.integration.yml up --build \
-            --abort-on-container-exit --exit-code-from tests
+          set -euo pipefail
+          docker compose -f docker-compose.integration.yml up --build -d
+
+          # Stream the scenario output live so a failure is readable in the
+          # job log rather than only in the artifact collected afterwards.
+          docker compose -f docker-compose.integration.yml logs -f tests &
+          logs_pid=$!
+
+          tests_cid="$(docker compose -f docker-compose.integration.yml ps -aq tests)"
+          if [ -z "$tests_cid" ]; then
+            echo "::error::the tests service has no container — the stack failed to start"
+            docker compose -f docker-compose.integration.yml ps -a
+            exit 1
+          fi
+
+          code="$(docker wait "$tests_cid")"
+          kill "$logs_pid" 2>/dev/null || true
+
+          echo "tests container exited with ${code}"
+          exit "$code"
 
       - name: Collect compose logs on failure
         if: failure()
