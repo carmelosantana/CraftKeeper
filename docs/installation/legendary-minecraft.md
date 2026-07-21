@@ -14,84 +14,48 @@ pipeline it uses everywhere else.
 > `05jchambers/legendary-minecraft-geyser-floodgate`. That is the name used
 > throughout this document.
 
-## Read this first: two things you must configure
+## How the two images fit together
 
-Legendary and CraftKeeper are independently built images that were never
-designed against each other. Two mismatches must be resolved or the integration
-silently half-works — CraftKeeper will show your configuration correctly but
-fail to save any change.
+CraftKeeper and Legendary are built independently and pick their own user
+accounts, so the shared volume would normally be a permission minefield.
+**CraftKeeper resolves this itself at startup — there is nothing to configure.**
 
-Both are one-time fixes and both are in the compose file below.
-
-### 1. UID mismatch — CraftKeeper cannot write without a supplementary group
-
-Legendary runs its server as a `minecraft` user created with `useradd -r`, and
-recursively `chown`s the whole data directory to it on **every boot**.
-CraftKeeper runs as a fixed `craftkeeper` user, **UID 1000**.
-
-Measured on `05jchambers/legendary-minecraft-geyser-floodgate:latest`:
+On boot its entrypoint reads the ownership of the mounted volume, joins that
+group, ensures the directories it must write are group-writable, and then drops
+to its own unprivileged user before anything else runs. You will see it in the
+container log:
 
 ```
-minecraft user:  uid=999(minecraft) gid=999(minecraft)
-seeded files:    -rw-rw-r--  (664)  999:999
-seeded subdirs:  drwxrwxr-x  (775)  999:999
+[entrypoint] joined group minecraft-host (gid 999) — matches /minecraft (uid 999)
+[entrypoint] added group-write to /minecraft (was 755) so atomic writes can land
+[entrypoint] dropping to craftkeeper (uid 1000)
 ```
 
-Files are group-writable, so granting CraftKeeper the `999` **supplementary
-group** is sufficient — no ownership changes, no running as root:
+Why it has to work this way, in case you are auditing it:
 
-```yaml
-group_add:
-  - "999"
-```
+- Legendary runs the server as a `minecraft` user created with `useradd -r`.
+  That lands on uid/gid 999 today but is **not pinned by the image**, so no
+  fixed number in a compose file would be reliable. It also re-`chown`s the
+  whole volume on every boot.
+- Its files are group-writable (664) and its subdirectories are 775, so joining
+  the owning group is enough for CraftKeeper to work — no ownership changes,
+  and CraftKeeper never `chown`s the server's files.
+- The volume **root**, however, is 755. CraftKeeper writes atomically (temp
+  file in the same directory, then `rename`), which needs write permission on
+  the directory itself. Without the group-write bit there, edits to `config/`
+  and `plugins/` would succeed while `server.properties` — the file holding
+  your RCON settings — silently failed. That split is worse than a clean
+  failure, so the entrypoint closes it.
 
-> **Verify the GID rather than trusting `999`.** `useradd -r` picks the next
-> free system ID at container start; it is not pinned by the image. It lands on
-> `999` on the current image, but a different base image or an image rebuild can
-> shift it. Check yours and use what it reports:
->
-> ```bash
-> docker exec <legendary-container> id -g minecraft
-> ```
+The permission adjustment only ever *adds* the group-write bit, only to
+directories, and only to directories already owned by a group CraftKeeper has
+just joined. It never changes ownership and never touches file contents. Set
+`CRAFTKEEPER_ADAPT_PERMISSIONS=off` to disable it and have CraftKeeper report
+the condition instead of correcting it.
 
-Without this, CraftKeeper reads every file fine (they are world-readable) and
-fails every write with permission denied.
-
-### 2. The volume root is `755` — `server.properties` needs `chmod g+w`
-
-The supplementary group is necessary but **not sufficient**. Legendary creates
-its subdirectories `775` but leaves the data directory root `755`:
-
-```
-755  /minecraft            <-- not group-writable
-775  /minecraft/config
-775  /minecraft/plugins
-```
-
-CraftKeeper writes atomically — new content to a temp file in the *same*
-directory, then `rename()`. Creating that temp file in a `755` directory fails.
-The practical effect is precise and easy to misread:
-
-| Target | Directory mode | Atomic write |
-| --- | --- | --- |
-| `/minecraft/config/paper-global.yml` | `775` | works |
-| `/minecraft/plugins/Geyser-Spigot/config.yml` | `775` | works |
-| **`/minecraft/server.properties`** | `755` (root) | **fails** |
-
-That is the worst possible split: `server.properties` is where RCON is enabled
-and where most server settings live. Plugin and Paper edits appear to work,
-which makes the failure look like a bug in one file rather than a permission
-issue.
-
-Fix it once:
-
-```bash
-docker exec -u 0 <legendary-container> chmod 775 /minecraft
-```
-
-**This persists.** Legendary's per-boot `chown -R` changes ownership only —
-POSIX `chown` does not reset permission bits — so the mode survives restarts.
-Verified across a container restart.
+If you run the container with an explicit `user:` in compose, CraftKeeper sees
+it is not root, skips all of the above, and runs exactly as you specified — at
+which point supplying the right supplementary group is your responsibility.
 
 ## Enabling RCON
 
@@ -174,10 +138,8 @@ services:
     volumes:
       - minecraft:/minecraft          # SAME volume as the server
       - craftkeeper_data:/data
-    # Grants write access to Legendary's group-writable files.
-    # Confirm the GID first: docker exec minecraft id -g minecraft
-    group_add:
-      - "999"
+    # No group_add and no chmod: CraftKeeper matches the volume's ownership
+    # itself at startup. See "How the two images fit together" above.
     environment:
       APP_URL: http://localhost:8080
       APP_KEY: ${CRAFTKEEPER_APP_KEY}
@@ -213,19 +175,18 @@ export MINECRAFT_RCON_PASSWORD="$(head -c 18 /dev/urandom | base64)"
 # 2. Start the Minecraft server first so it seeds /minecraft
 docker compose up -d minecraft
 
-# 3. Wait for server.properties, then apply the two one-time fixes
+# 3. Wait for the volume to be seeded, then turn on RCON. This is the only
+#    manual step, and it is server-side configuration rather than anything
+#    CraftKeeper needs — Legendary ships RCON disabled with an empty password.
 until docker exec minecraft test -f /minecraft/server.properties; do sleep 2; done
-docker exec -u 0 minecraft chmod 775 /minecraft
-docker exec -u 999 minecraft sh -c "
+docker exec -u "$(docker exec minecraft id -u minecraft)" minecraft sh -c "
   sed -i 's/^enable-rcon=.*/enable-rcon=true/' /minecraft/server.properties
   sed -i \"s/^rcon.password=.*/rcon.password=$MINECRAFT_RCON_PASSWORD/\" /minecraft/server.properties
 "
 docker restart minecraft
 
-# 4. Confirm the GID matches the compose file's group_add
-docker exec minecraft id -g minecraft
-
-# 5. Start CraftKeeper
+# 4. Start CraftKeeper. It adapts to the volume's ownership on its own;
+#    `docker compose logs craftkeeper | grep entrypoint` shows what it did.
 docker compose up -d craftkeeper
 ```
 
@@ -262,8 +223,8 @@ narrow per-boot rewrites already described: `server-port` and `query.port` in
 
 **Ownership is reclaimed on every server restart.** The recursive `chown` means
 any file CraftKeeper creates reverts to `minecraft` ownership when the server
-restarts. Harmless with the group-based setup above, since access comes from the
-group bit rather than ownership.
+restarts. Harmless: CraftKeeper reaches the volume through the group bit rather
+than through ownership, so reclaimed ownership changes nothing.
 
 ## Troubleshooting
 
@@ -271,11 +232,16 @@ group bit rather than ownership.
 Confirm both services mount the same volume, and that
 `docker exec craftkeeper ls /minecraft` lists the server's files.
 
-**Reads work, every save fails.** This is the UID mismatch. Confirm the GID with
-`docker exec minecraft id -g minecraft` and make sure `group_add` matches it.
+**Reads work, every save fails.** CraftKeeper did not join the volume's group.
+Check `docker compose logs craftkeeper | grep entrypoint` — it should report
+which group it joined. If it says it could not, or says nothing at all, the
+container is probably running with an explicit `user:` (which disables the
+adaptation) or with `CRAFTKEEPER_ADAPT_PERMISSIONS=off`.
 
-**Everything saves except `server.properties`.** The `chmod 775 /minecraft` step
-was skipped, or the volume was recreated after it was applied. Re-apply it.
+**Everything saves except `server.properties`.** The volume root is not
+group-writable and the permission adaptation is disabled. Either remove
+`CRAFTKEEPER_ADAPT_PERMISSIONS=off`, or apply it yourself once with
+`docker exec -u 0 minecraft chmod g+w /minecraft`.
 
 **Console shows "Unavailable".** RCON is not reachable. Check `enable-rcon=true`
 in `server.properties`, that the server was restarted after the edit, that

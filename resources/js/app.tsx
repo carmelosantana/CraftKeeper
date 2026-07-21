@@ -7,7 +7,12 @@ import AuthLayout from '@/layouts/auth-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { bootEcho } from '@/lib/echo';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+// Fallback is the product name, not the framework's. VITE_APP_NAME is baked
+// in at build time from .env, and the container image builds without one —
+// so every published image titled its browser tabs "Log in - Laravel".
+// config/app.php already defaults to 'CraftKeeper'; this keeps the frontend
+// consistent with it.
+const appName = import.meta.env.VITE_APP_NAME || 'CraftKeeper';
 
 // Configuring Echo once, at boot, is required before any page's
 // useEcho()/useConnectionStatus() call runs — see resources/js/lib/echo.ts.
@@ -17,7 +22,6 @@ createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
     layout: (name) => {
         switch (true) {
-            case name === 'welcome':
             case name === 'DesignSystem':
             case name === 'Overview':
             case name === 'Activity':

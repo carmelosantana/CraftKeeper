@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { dashboard } from '@/routes';
+import { overview } from '@/routes';
 import onboarding from '@/routes/onboarding';
 
 /**
@@ -524,7 +524,7 @@ function CompleteStep() {
                 analytics settings any time.
             </p>
             <Button asChild className="w-full">
-                <Link href={dashboard().url}>Go to dashboard</Link>
+                <Link href={overview().url}>Go to CraftKeeper</Link>
             </Button>
         </div>
     );

@@ -15,9 +15,11 @@ use App\Http\Controllers\PluginController;
 use App\Http\Controllers\ServerController;
 use App\Http\Middleware\ContentSecurityPolicy;
 use App\Http\Middleware\RequireInstallation;
+use App\Support\InstallationState;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
@@ -39,7 +41,22 @@ Route::get('/up', HealthController::class)
     ])
     ->name('health');
 
-Route::inertia('/', 'welcome')->name('home');
+// CraftKeeper is a control plane, not a marketing site: "/" has no content
+// of its own and always forwards to wherever the visitor actually belongs.
+// Previously this served the Laravel starter kit's stock welcome page, so
+// the first thing an operator saw was a Laravel splash screen rather than
+// their server.
+Route::get('/', function () {
+    if (! InstallationState::isInstalled()) {
+        return redirect()->route('onboarding.welcome');
+    }
+
+    return redirect()->route(Auth::check() ? 'overview' : 'login');
+})->name('home');
+
+// Kept as a redirect, not a page. Fortify's `home` config and any bookmark
+// or muscle-memory /dashboard request lands on the real operations page.
+Route::redirect('dashboard', '/overview')->name('dashboard');
 
 // Public: Task 3's design-system showcase must be reachable without login
 // (auth ships in Task 4) so the AppShell/token gallery can be reviewed and
@@ -89,8 +106,6 @@ Route::middleware(['auth'])->prefix('onboarding')->name('onboarding.')->group(fu
 });
 
 Route::middleware(['auth'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
-
     // Task 12: the server operations workspace.
     Route::get('overview', [OverviewController::class, 'index'])->name('overview');
 

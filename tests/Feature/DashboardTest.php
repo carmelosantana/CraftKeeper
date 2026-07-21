@@ -6,22 +6,34 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * /dashboard was the Laravel starter kit's placeholder page. It is now only a
+ * redirect to the real operations page, so what matters is that the chain
+ * still ends somewhere correct — and, for a guest, never anywhere privileged.
+ */
 class DashboardTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_guests_are_redirected_to_the_login_page()
+    public function test_guests_never_reach_the_overview_through_the_dashboard(): void
     {
-        $response = $this->get(route('dashboard'));
-        $response->assertRedirect(route('login'));
+        // A guest bounces /dashboard -> /overview -> /login. The redirect
+        // itself carries no auth middleware, but /overview does, so the chain
+        // cannot terminate on an authenticated page.
+        $this->get(route('dashboard'))
+            ->assertRedirect(route('overview', absolute: false));
+
+        $this->get(route('overview'))
+            ->assertRedirect(route('login', absolute: false));
+
+        $this->assertGuest();
     }
 
-    public function test_authenticated_users_can_visit_the_dashboard()
+    public function test_authenticated_users_are_sent_to_the_overview(): void
     {
-        $user = User::factory()->create();
-        $this->actingAs($user);
+        $this->actingAs(User::factory()->create());
 
-        $response = $this->get(route('dashboard'));
-        $response->assertOk();
+        $this->get(route('dashboard'))
+            ->assertRedirect(route('overview', absolute: false));
     }
 }

@@ -70,7 +70,7 @@ class TwoFactorChallengeTest extends TestCase
 
         $this->post(route('two-factor.login.store'), [
             'recovery_code' => 'recovery-code-1',
-        ])->assertRedirect(route('dashboard', absolute: false));
+        ])->assertRedirect(route('overview', absolute: false));
 
         $this->assertAuthenticatedAs($user);
 

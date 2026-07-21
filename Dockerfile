@@ -169,7 +169,21 @@ COPY --from=build --chown=craftkeeper:craftkeeper /app ./
 
 EXPOSE 8080
 
-USER craftkeeper
+# Deliberately NOT `USER craftkeeper`. The entrypoint starts as root, adapts
+# this container's group membership to whatever already owns the mounted
+# Minecraft volume, and then drops to craftkeeper with `setpriv` and re-execs
+# itself — see docker/entrypoint.sh. Every application process (Supervisor,
+# PHP-FPM, Nginx, the queue worker, the scheduler, Reverb) still runs as
+# craftkeeper; root exists only for the few lines before that drop, and is
+# never regained.
+#
+# This is what lets CraftKeeper run beside an arbitrary Minecraft server
+# image without the operator hand-writing `group_add` and a `chmod` — the
+# server image picks its own uid/gid, so matching it has to happen at runtime.
+#
+# Running the container with an explicit `--user`/`user:` still works: the
+# entrypoint sees it is not root, skips the adaptation entirely, and proceeds
+# unprivileged exactly as before.
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl --fail --silent http://127.0.0.1:8080/up || exit 1

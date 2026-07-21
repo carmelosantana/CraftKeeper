@@ -90,8 +90,8 @@ test.describe.serial('onboarding, login, and two-factor', () => {
         expect(await page.content()).not.toContain(RCON_PASSWORD);
 
         await page.goto('/onboarding/complete');
-        await page.getByRole('link', { name: 'Go to dashboard' }).click();
-        await page.waitForURL('**/dashboard');
+        await page.getByRole('link', { name: 'Go to CraftKeeper' }).click();
+        await page.waitForURL('**/overview');
 
         // Registration is gone for good — a 404, not a hidden UI element
         // or a redirect a determined user could route around.
@@ -107,7 +107,7 @@ test.describe.serial('onboarding, login, and two-factor', () => {
         await page.locator('#password').fill(ADMIN_PASSWORD);
         await page.getByTestId('login-button').click();
 
-        await page.waitForURL('**/dashboard');
+        await page.waitForURL('**/overview');
     });
 
     test('two-factor: enabling TOTP and logging in with a recovery code works', async ({
@@ -117,7 +117,7 @@ test.describe.serial('onboarding, login, and two-factor', () => {
         await page.locator('#email').fill(ADMIN_EMAIL);
         await page.locator('#password').fill(ADMIN_PASSWORD);
         await page.getByTestId('login-button').click();
-        await page.waitForURL('**/dashboard');
+        await page.waitForURL('**/overview');
 
         await page.goto('/settings/security');
 
@@ -169,6 +169,6 @@ test.describe.serial('onboarding, login, and two-factor', () => {
         await page.locator('input[name="recovery_code"]').fill(recoveryCode);
         await page.getByRole('button', { name: 'Continue' }).click();
 
-        await page.waitForURL('**/dashboard');
+        await page.waitForURL('**/overview');
     });
 });

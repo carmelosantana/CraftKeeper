@@ -74,7 +74,7 @@ async function ensureLoggedInAdmin(page: Page): Promise<void> {
         await page.locator('#email').fill(ADMIN_EMAIL);
         await page.locator('#password').fill(ADMIN_PASSWORD);
         await page.getByTestId('login-button').click();
-        await page.waitForURL('**/dashboard');
+        await page.waitForURL('**/overview');
 
         return;
     }
@@ -95,8 +95,8 @@ async function ensureLoggedInAdmin(page: Page): Promise<void> {
     await page.waitForURL('**/onboarding/analytics');
     await page.getByRole('link', { name: 'Skip for now' }).click();
     await page.waitForURL('**/onboarding/complete');
-    await page.getByRole('link', { name: 'Go to dashboard' }).click();
-    await page.waitForURL('**/dashboard');
+    await page.getByRole('link', { name: 'Go to CraftKeeper' }).click();
+    await page.waitForURL('**/overview');
 }
 
 test.describe.serial('configuration', () => {
