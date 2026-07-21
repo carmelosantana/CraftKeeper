@@ -2317,11 +2317,33 @@ today. Until a future task threads real `REVERB_APP_KEY`/`HOST`/`PORT`/
 dummy value is handled, per Task 2's own decisions.md entry) and updates
 `compose.example.yml` accordingly, a real deployed container would ship
 a JS bundle wired to WHATEVER `REVERB_*` values happened to be present
-at image-build time, not the actual runtime Reverb credentials — the
-websocket features would degrade to "unavailable" in production too,
-safely (never a crash, never fabricated data) but not functionally live.
+at image-build time, not the actual runtime Reverb credentials.
 This is explicitly out of scope for a UI-composition task and is flagged
 here for whichever task next touches the Docker build (2, 19, or 21).
+
+**CORRECTION (2026-07-21): the sentence originally following the paragraph
+above — that the websocket features would "degrade to 'unavailable' in
+production too, safely (never a crash, never fabricated data)" — was
+wrong, and the failure it predicted safely was in fact total.** The
+prediction assumed *some* `REVERB_*` values would be present at build
+time. In the container image there are none: it builds without a `.env`,
+so every `VITE_REVERB_*` is `undefined`, and Reverb's connector hands that
+`undefined` key to Pusher, whose constructor throws "You must pass your
+app key when you instantiate Pusher." synchronously during render. React
+committed nothing, and every route reading realtime status — Assistant,
+the Console, and any page rendering `OperationProgress` — served a
+completely blank page in the published image. Found by browsing the
+running container; HTTP status was 200 throughout, which is why the route
+sweep and the e2e suite (which runs against `artisan serve` with a real
+`.env`) both missed it.
+
+`resources/js/lib/echo.ts` now configures Echo's own `null` broadcaster
+when no key is present, so the hooks resolve against an inert connector
+instead of throwing. That broadcaster reports its connection as
+"connected", so `resources/js/hooks/use-realtime-status.ts` overrides it
+to "unavailable" — a fabricated "connected" chip above a console that can
+never receive a line is exactly the dishonest state this app refuses to
+render. The build-time wiring gap itself is unchanged and still open.
 
 **Two pre-existing Task 3 accessibility bugs were found (not introduced)
 by this task's own e2e axe scans — the first ones to actually reach a

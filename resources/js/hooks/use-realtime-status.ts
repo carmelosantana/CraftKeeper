@@ -1,4 +1,5 @@
 import { useConnectionStatus } from '@laravel/echo-react';
+import { realtimeEnabled } from '@/lib/echo';
 
 /**
  * Maps `@laravel/echo-react`'s `ConnectionStatus` ("connected" |
@@ -12,7 +13,21 @@ import { useConnectionStatus } from '@laravel/echo-react';
 export type RealtimeStatus = 'connected' | 'connecting' | 'unavailable';
 
 export function useRealtimeStatus(): RealtimeStatus {
+    // Called unconditionally: hook order must never depend on configuration.
+    // Safe either way — when Reverb is not configured `bootEcho()` installs
+    // Echo's `null` broadcaster, so this reads an inert connector instead of
+    // throwing.
     const status = useConnectionStatus();
+
+    // That null broadcaster answers "connected": it has nothing to connect
+    // to and reports success regardless. Passing that through would show a
+    // live "connected" indicator above a console that can never receive a
+    // line — precisely the fabricated state this app refuses to display. When
+    // realtime is not configured the honest answer is "unavailable", whatever
+    // Echo claims.
+    if (!realtimeEnabled) {
+        return 'unavailable';
+    }
 
     if (status === 'connected') {
         return 'connected';

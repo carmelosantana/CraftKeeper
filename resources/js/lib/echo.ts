@@ -12,15 +12,41 @@ import { configureEcho, echoIsConfigured } from '@laravel/echo-react';
  * is required before any of those hooks run, or they throw synchronously
  * ("Echo has not been configured").
  *
- * No supervisor in this repo runs `reverb:start` outside the Docker image
- * (docker/supervisor/supervisord.conf) — locally, in tests, and in this
- * sandbox's e2e runs there is no live Reverb server to connect to, so the
- * very first real-world exercise of this code path is: Echo tries to open
- * a websocket, it fails/never completes, and `useConnectionStatus()`
- * genuinely reports a non-"connected" state. That is exactly what Console/
- * OperationProgress's reconnect UI is built to show — see
- * `resources/js/hooks/use-realtime-status.ts`.
+ * `VITE_*` values are inlined by Vite at BUILD time, and the container image
+ * builds with no `.env` at all, so in the published image every
+ * `VITE_REVERB_*` is `undefined`. Reverb's connector passes that key
+ * straight to Pusher, whose constructor throws "You must pass your app key
+ * when you instantiate Pusher." — synchronously, during render, before React
+ * has committed anything. The result was a completely blank page on every
+ * route that reads realtime status: Assistant, the Console, and any page
+ * rendering OperationProgress.
+ *
+ * decisions.md (Task 12) anticipated the missing build-time wiring but
+ * recorded that it would "degrade to 'unavailable' in production too, safely
+ * (never a crash, never fabricated data)". The first half of that was wrong
+ * — it crashed. This is what makes it true.
+ *
+ * With no key present we hand Echo its own `null` broadcaster instead: the
+ * hooks keep working, every channel is an inert no-op, and nothing attempts
+ * to open a socket. `realtimeEnabled` records which way it went, because
+ * that broadcaster reports its connection as "connected" — see
+ * `resources/js/hooks/use-realtime-status.ts` for why that answer must never
+ * reach the UI.
  */
+function reverbKey(): string {
+    const key = import.meta.env.VITE_REVERB_APP_KEY;
+
+    return typeof key === 'string' ? key.trim() : '';
+}
+
+/**
+ * Whether this build carries real Reverb credentials. False in the published
+ * container image today — see the note above, and the disclosed gap in
+ * `docs/architecture/decisions.md` about threading `REVERB_*` through the
+ * Docker build.
+ */
+export const realtimeEnabled: boolean = reverbKey() !== '';
+
 let configured = false;
 
 export function bootEcho(): void {
@@ -30,6 +56,8 @@ export function bootEcho(): void {
         return;
     }
 
-    configureEcho({ broadcaster: 'reverb' });
+    configureEcho(
+        realtimeEnabled ? { broadcaster: 'reverb' } : { broadcaster: 'null' },
+    );
     configured = true;
 }
