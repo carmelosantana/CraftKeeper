@@ -40,6 +40,33 @@
             }
         </style>
 
+        {{--
+            The Reverb app key the browser needs to open its websocket.
+
+            Emitted here, at RUNTIME, rather than through VITE_REVERB_APP_KEY.
+            Vite inlines VITE_* at BUILD time, so a published image can only
+            ever carry whatever key existed on the machine that built it —
+            which is nobody's real key. Realtime therefore could not work in
+            the published image at all, no matter how the operator configured
+            the container. Rendered directly in this template (not via an
+            Inertia shared prop) for the same reason the Umami tag below is:
+            it must be identical on a full page load and on any Inertia
+            partial reload, and `resources/js/lib/echo.ts` reads it during
+            module boot, before Inertia has resolved a page.
+
+            The app KEY is not a secret — it identifies a websocket client
+            exactly as a Pusher app key does (see .env.example's own note
+            beside REVERB_APP_KEY). REVERB_APP_SECRET is never exposed and is
+            not referenced here.
+
+            Absent unless Reverb is the active broadcaster AND a key exists,
+            so its absence is the honest signal that realtime is off; echo.ts
+            falls back to an inert connector and the UI reports "unavailable".
+        --}}
+        @if (config('broadcasting.default') === 'reverb' && filled(config('broadcasting.connections.reverb.key')))
+            <meta name="craftkeeper-reverb-key" content="{{ config('broadcasting.connections.reverb.key') }}">
+        @endif
+
         <link rel="icon" href="/favicon.ico" sizes="any">
         <link rel="icon" href="/favicon.svg" type="image/svg+xml">
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">

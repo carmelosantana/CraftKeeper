@@ -2343,7 +2343,38 @@ instead of throwing. That broadcaster reports its connection as
 "connected", so `resources/js/hooks/use-realtime-status.ts` overrides it
 to "unavailable" — a fabricated "connected" chip above a console that can
 never receive a line is exactly the dishonest state this app refuses to
-render. The build-time wiring gap itself is unchanged and still open.
+render.
+
+**GAP CLOSED (2026-07-21), but not by build args.** Threading `REVERB_*`
+through as Docker build ARGs — the fix this entry originally called for —
+cannot work for a *published* image: `VITE_*` is inlined at build time, so
+`ghcr.io/carmelosantana/craftkeeper` would carry whatever key the CI runner
+happened to build with, which is nobody's real key. Build args only help
+somebody building their own image.
+
+The app key is therefore published at RUNTIME, as a `<meta>` tag from
+`resources/views/app.blade.php` (the same reasoning that already keeps the
+Umami tag out of Inertia shared props: it must render identically on a full
+load and a partial reload, and `echo.ts` reads it during module boot). The
+key is not a secret — it identifies a websocket client exactly as a Pusher
+app key does, per `.env.example`'s own note. `REVERB_APP_SECRET` is never
+exposed, and a test asserts that.
+
+The browser connects to the PAGE'S OWN ORIGIN, not `REVERB_HOST`/
+`REVERB_PORT`: Nginx proxies the Pusher protocol's `/app` path through to
+Reverb (`docker/nginx/default.conf`), so the endpoint follows any published
+port or proxy hostname with nothing to configure. `REVERB_HOST`/`PORT`/
+`SCHEME` describe the internal publish hop instead, and the Dockerfile now
+defaults them to `127.0.0.1:8081/http` to match the hard-coded bind in
+`docker/supervisor/supervisord.conf`. Laravel's own defaults (no host, port
+443, https) produced `Unable to parse URI: https://:443` on every broadcast:
+the socket connected and the channel authorised, then nothing was ever
+delivered — a failure that reads exactly like a client bug.
+
+Enabling realtime is now `BROADCAST_CONNECTION=reverb` plus the three
+`REVERB_APP_*` credentials, nothing else. Verified end to end against the
+built image: HTTP 101 upgrade through Nginx, `POST /broadcasting/auth` 200,
+and console lines advancing in a browser with no reload.
 
 **Two pre-existing Task 3 accessibility bugs were found (not introduced)
 by this task's own e2e axe scans — the first ones to actually reach a

@@ -33,19 +33,64 @@ import { configureEcho, echoIsConfigured } from '@laravel/echo-react';
  * `resources/js/hooks/use-realtime-status.ts` for why that answer must never
  * reach the UI.
  */
-function reverbKey(): string {
+/** A key baked in at build time — how local development is configured. */
+function buildTimeKey(): string {
     const key = import.meta.env.VITE_REVERB_APP_KEY;
 
     return typeof key === 'string' ? key.trim() : '';
 }
 
 /**
- * Whether this build carries real Reverb credentials. False in the published
- * container image today — see the note above, and the disclosed gap in
- * `docs/architecture/decisions.md` about threading `REVERB_*` through the
- * Docker build.
+ * A key supplied at runtime by the server, from
+ * `resources/views/app.blade.php`. This is what makes realtime work in the
+ * published image, where no build-time key can exist.
  */
-export const realtimeEnabled: boolean = reverbKey() !== '';
+function runtimeKey(): string {
+    if (typeof document === 'undefined') {
+        return '';
+    }
+
+    return (
+        document
+            .querySelector('meta[name="craftkeeper-reverb-key"]')
+            ?.getAttribute('content')
+            ?.trim() ?? ''
+    );
+}
+
+/**
+ * Where the browser should open the websocket when the key came from the
+ * server: this page's own origin.
+ *
+ * Not `REVERB_HOST`/`REVERB_PORT` — those describe where the Reverb process
+ * BINDS, which in the container is 127.0.0.1:8081 (see
+ * docker/supervisor/supervisord.conf) and is unreachable from a browser.
+ * Nginx proxies `/app` — the path the Pusher protocol connects on — through
+ * to it (docker/nginx/default.conf), so the correct browser-facing endpoint
+ * is simply wherever this page was served from. That also means it follows
+ * any published port or reverse-proxy hostname automatically, with nothing
+ * to configure.
+ */
+function sameOriginTransport() {
+    const secure = window.location.protocol === 'https:';
+    const port = window.location.port
+        ? Number(window.location.port)
+        : secure
+          ? 443
+          : 80;
+
+    return {
+        wsHost: window.location.hostname,
+        wsPort: port,
+        wssPort: port,
+        forceTLS: secure,
+        enabledTransports: ['ws', 'wss'] as ('ws' | 'wss')[],
+    };
+}
+
+/** Whether this page has a usable Reverb key from either source. */
+export const realtimeEnabled: boolean =
+    buildTimeKey() !== '' || runtimeKey() !== '';
 
 let configured = false;
 
@@ -56,8 +101,23 @@ export function bootEcho(): void {
         return;
     }
 
+    // Build-time configuration wins, and is left completely untouched:
+    // `npm run dev` runs Reverb standalone on its own host/port
+    // (REVERB_HOST/REVERB_PORT via VITE_REVERB_*), not behind a proxy, so
+    // deriving the endpoint from the page origin would be wrong there.
+    if (buildTimeKey() !== '') {
+        configureEcho({ broadcaster: 'reverb' });
+        configured = true;
+
+        return;
+    }
+
+    const key = runtimeKey();
+
     configureEcho(
-        realtimeEnabled ? { broadcaster: 'reverb' } : { broadcaster: 'null' },
+        key !== ''
+            ? { broadcaster: 'reverb', key, ...sameOriginTransport() }
+            : { broadcaster: 'null' },
     );
     configured = true;
 }

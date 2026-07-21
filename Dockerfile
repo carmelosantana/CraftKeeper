@@ -163,6 +163,25 @@ RUN { \
 # this default like any other environment variable.
 ENV BROADCAST_CONNECTION=log
 
+# Where the application publishes events to its OWN Reverb process. These
+# describe an internal hop, not anything an operator should have to know:
+# docker/supervisor/supervisord.conf starts Reverb with a hard-coded
+# `--host=127.0.0.1 --port=8081`, and these must match it.
+#
+# Laravel's own defaults are no host at all, port 443, scheme https, which
+# produced `Unable to parse URI: https://:443` on every broadcast — the
+# websocket connected and the channel authorised, then nothing was ever
+# delivered, which reads exactly like a client bug. Defaulting them here
+# means enabling realtime is only BROADCAST_CONNECTION=reverb plus the three
+# REVERB_APP_* credentials.
+#
+# Not to be confused with the browser-facing endpoint: the frontend connects
+# to the page's own origin, because Nginx proxies the Pusher protocol's
+# `/app` path through to this same port. See resources/js/lib/echo.ts.
+ENV REVERB_HOST=127.0.0.1 \
+    REVERB_PORT=8081 \
+    REVERB_SCHEME=http
+
 WORKDIR /var/www/html
 
 COPY --from=build --chown=craftkeeper:craftkeeper /app ./

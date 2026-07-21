@@ -28,10 +28,23 @@ services:
       QUEUE_CONNECTION: database
       CACHE_STORE: database
       SESSION_DRIVER: database
-      # Realtime console/operation streaming is optional. `log` disables it
-      # and is the image default. To enable live streaming, set this to
-      # `reverb` and supply REVERB_APP_ID / REVERB_APP_KEY / REVERB_APP_SECRET
-      # — the reverb driver throws at boot if those are missing.
+      # Realtime console and operation streaming. `log` disables it and is
+      # the image default; with it off the Console still works, it just shows
+      # the last loaded lines instead of updating live.
+      #
+      # To turn it on, switch this to `reverb` and supply the three
+      # credentials below — that is the entire configuration. The app key is
+      # published to the browser at runtime (it identifies a websocket
+      # client, exactly as a Pusher app key does); the secret never leaves
+      # the server. Nothing needs rebuilding, and the websocket follows
+      # whatever host and port you publish on, including through a TLS proxy.
+      #
+      #   BROADCAST_CONNECTION: reverb
+      #   REVERB_APP_ID: "900001"
+      #   REVERB_APP_KEY: "<random string>"
+      #   REVERB_APP_SECRET: "<random string, keep this private>"
+      #
+      # Generate the pair with e.g. `openssl rand -hex 16`.
       BROADCAST_CONNECTION: log
       # Task 20: set this to your reverse proxy/load balancer's address
       # (or the Docker network CIDR it connects from) so

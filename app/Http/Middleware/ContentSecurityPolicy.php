@@ -78,13 +78,13 @@ class ContentSecurityPolicy
 
         $response->headers->set(
             'Content-Security-Policy',
-            $this->buildPolicy($nonce),
+            $this->buildPolicy($nonce, $request),
         );
 
         return $response;
     }
 
-    private function buildPolicy(string $nonce): string
+    private function buildPolicy(string $nonce, Request $request): string
     {
         $scriptSrc = ["'self'", "'nonce-{$nonce}'"];
         $connectSrc = ["'self'"];
@@ -114,6 +114,10 @@ class ContentSecurityPolicy
 
         if ($reverbOrigin = $this->reverbOrigin()) {
             $connectSrc[] = $reverbOrigin;
+        }
+
+        if ($sameOrigin = $this->sameOriginWebsocket($request)) {
+            $connectSrc[] = $sameOrigin;
         }
 
         try {
@@ -164,8 +168,61 @@ class ContentSecurityPolicy
      * resources/js/lib/echo.ts already handles a socket that can never
      * open).
      */
+    /**
+     * The websocket origin of THIS request, added only when Reverb is the
+     * active broadcaster and a key exists.
+     *
+     * When the key is supplied at runtime (the meta tag in
+     * resources/views/app.blade.php), the browser opens its socket against
+     * the page's own origin, because nginx proxies the Pusher protocol's
+     * `/app` path through to Reverb — see resources/js/lib/echo.ts. That
+     * endpoint is not `reverbOrigin()` above, which reflects where the Reverb
+     * process binds (127.0.0.1:8081 in the container) rather than anywhere a
+     * browser can reach.
+     *
+     * CSP Level 3 says `'self'` already covers same-origin ws/wss, but that
+     * was implemented late and inconsistently across browsers, and a
+     * mistakenly blocked websocket surfaces as "realtime silently never
+     * connects" — indistinguishable from a misconfiguration. Naming the
+     * origin explicitly costs one directive entry and removes the ambiguity.
+     */
+    private function sameOriginWebsocket(Request $request): ?string
+    {
+        if (! $this->realtimeIsActive()) {
+            return null;
+        }
+
+        $scheme = $request->isSecure() ? 'wss' : 'ws';
+
+        return "{$scheme}://{$request->getHttpHost()}";
+    }
+
+    /**
+     * Whether this installation is actually broadcasting over Reverb right
+     * now — the same condition resources/views/app.blade.php uses to decide
+     * whether to publish the app key to the browser. When it is false no
+     * websocket origin is advertised at all, because nothing will open one.
+     */
+    private function realtimeIsActive(): bool
+    {
+        return config('broadcasting.default') === 'reverb'
+            && filled(config('broadcasting.connections.reverb.key'));
+    }
+
     private function reverbOrigin(): ?string
     {
+        // Gated on realtime actually being on. In the container image
+        // REVERB_HOST/PORT describe an internal hop (127.0.0.1:8081, where
+        // the app publishes to its own Reverb — see the Dockerfile), which no
+        // browser can reach; advertising it while broadcasting is disabled
+        // put a loopback origin in the policy that nothing would ever use.
+        // It still matters for local development, where Reverb runs
+        // standalone on its own host/port and those genuinely are the
+        // browser's endpoint.
+        if (! $this->realtimeIsActive()) {
+            return null;
+        }
+
         $config = config('broadcasting.connections.reverb.options', []);
         $host = $config['host'] ?? null;
 
