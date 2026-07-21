@@ -2374,7 +2374,52 @@ delivered — a failure that reads exactly like a client bug.
 Enabling realtime is now `BROADCAST_CONNECTION=reverb` plus the three
 `REVERB_APP_*` credentials, nothing else. Verified end to end against the
 built image: HTTP 101 upgrade through Nginx, `POST /broadcasting/auth` 200,
-and console lines advancing in a browser with no reload.
+and console lines advancing in a browser with no reload. Operation progress
+was verified the same way, driving `approve`/`execute` from a shell against
+the running container while watching the panel move `Awaiting approval ->
+Approved -> Succeeded` in a browser that never navigated.
+
+**Regression cover for that, added afterwards:
+`tests/e2e/operation-streaming.spec.ts`.** The manual check above proves the
+feature works once; it does not stop anyone from breaking it. The suite now
+runs a real `reverb:start` alongside `artisan serve` (`playwright.config.ts`),
+so this spec asserts on a genuine broadcast rather than a stub — real
+`OperationUpdated`, real Pusher-protocol socket, real component.
+
+Two design points are load-bearing, and both were verified by mutation
+rather than assumed:
+
+- **The transition is driven from a SECOND page**, not the watched one.
+  Approving from the watched page is a full Inertia visit that re-renders
+  the panel from the response, so the assertion would pass with the socket
+  unplugged. Confirmed by pointing the client at a wrong channel name: the
+  DOM stays on "Awaiting approval" and the test fails.
+- **The socket being connected is asserted, not assumed**, before anything
+  else. Confirmed by setting `BROADCAST_CONNECTION=log`: the spec fails on
+  that precondition with a message naming `reverb:start`, instead of a bare
+  content-timeout that reads like a product bug.
+
+The spec also pins the wire contract — channel `private-operations.{id}`,
+event `operation.updated`, and the payload's field names — because a
+DOM-only assertion would still pass if `broadcastWith()` and the component
+were renamed together, silently breaking every other consumer. It asserts
+the allow-list holds too: no `target`, no `redacted_input`, and the command
+text absent from the frame.
+
+**What it deliberately does not cover.** `artisan serve` cannot proxy a
+websocket, so the browser connects straight to Reverb with a Vite-compiled
+key — `echo.ts`'s build-time branch, which is how local development runs,
+NOT how the published image runs. The runtime-`<meta>`-key + same-origin
+branch stays covered by `tests/Feature/RealtimeClientConfigTest.php`,
+`resources/js/lib/echo.test.ts`, and `docker-compose.integration.yml`.
+Stating this here because the failure mode this whole entry documents was
+exactly a harness supplying configuration that real invocations don't have.
+
+One existing test had to change: server-operations.spec.ts's websocket-loss
+test relied on there being no Reverb to connect to at all. It now severs its
+own connection with `routeWebSocket`, on its own page so the interception
+cannot leak into any test added after it — a genuine failed connection,
+still not a stubbed status.
 
 **Two pre-existing Task 3 accessibility bugs were found (not introduced)
 by this task's own e2e axe scans — the first ones to actually reach a

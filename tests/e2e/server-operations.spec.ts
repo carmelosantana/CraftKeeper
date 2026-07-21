@@ -22,13 +22,17 @@ import type { Page } from '@playwright/test';
  * see "Stops the Minecraft server" and "Approval required", no JS errors)
  * verbatim in that convention.
  *
- * No live Reverb server runs anywhere in this sandbox (only `php artisan
- * serve`, no `reverb:start` alongside it) and no `schedule:work`/
- * `SampleServerState` scheduler runs either — so throughout this entire
- * file, RCON is deterministically "unavailable" (no App\Models\
- * ServerSample row is ever created) and the websocket connection
- * deterministically never reaches "connected". Both are exercised here as
- * genuinely observed states, not simulated ones.
+ * No `schedule:work`/`SampleServerState` scheduler runs anywhere in this
+ * sandbox, so throughout this entire file RCON is deterministically
+ * "unavailable" (no App\Models\ServerSample row is ever created) — a
+ * genuinely observed state, not a simulated one.
+ *
+ * A live Reverb server, however, now DOES run alongside `artisan serve`
+ * (playwright.config.ts starts one so tests/e2e/operation-streaming.spec.ts
+ * can assert on real streaming). Echo therefore reaches "connected" here,
+ * where it once could not — which is why the websocket-loss test at the
+ * bottom of this file severs its own connection rather than relying on
+ * there being nothing to connect to.
  *
  * ONE shared, authenticated page for the whole file (created once in
  * `beforeAll`, reused by every test below instead of the default
@@ -330,21 +334,34 @@ test.describe.serial('server operations', () => {
     */
 
     test('shows a reconnect state when live updates are unavailable, without losing composed input', async () => {
-        await page.goto('/server/console');
+        // Its OWN page, in the shared (already signed-in) context: the
+        // websocket route below would otherwise stay installed on the
+        // file's shared page and quietly disconnect any test added after
+        // this one. No extra login, so Fortify's throttle is untouched.
+        const severed = await page.context().newPage();
 
-        // No live Reverb server exists anywhere in this sandbox — Echo's
-        // connection genuinely never reaches "connected", which is
-        // exactly the condition this banner exists to surface honestly.
-        await expect(page.getByTestId('console-reconnect-banner')).toBeVisible({
-            timeout: 10_000,
-        });
+        // A real Reverb server is running (see this file's docblock), so
+        // the unavailable state has to be produced rather than assumed:
+        // intercept the Pusher-protocol socket and close it instead of
+        // connecting it through. That is a genuine failed connection as
+        // far as Echo is concerned — the same thing it sees when Reverb
+        // is down or a proxy drops the upgrade — not a stubbed status.
+        await severed.routeWebSocket('**/app/**', (ws) => ws.close());
 
-        const input = page.getByTestId('command-input');
+        await severed.goto('/server/console');
+
+        await expect(
+            severed.getByTestId('console-reconnect-banner'),
+        ).toBeVisible({ timeout: 10_000 });
+
+        const input = severed.getByTestId('command-input');
         await input.fill('this command is still being typed');
 
-        // Give any (absent) reconnect attempt a moment to have possibly
-        // fired a re-render, then confirm the operator's text survived.
-        await page.waitForTimeout(500);
+        // Give the reconnect attempt a moment to have possibly fired a
+        // re-render, then confirm the operator's text survived it.
+        await severed.waitForTimeout(500);
         await expect(input).toHaveValue('this command is still being typed');
+
+        await severed.close();
     });
 });
