@@ -149,7 +149,14 @@ test.describe.serial('onboarding, login, and two-factor', () => {
         ).toBeVisible({ timeout: 10_000 });
 
         await page.getByRole('button', { name: 'View recovery codes' }).click();
-        const firstCode = page.locator('[role="listitem"]').first();
+        // Scoped to the recovery-codes list, not the first listitem on the
+        // page: the settings pages now render inside CraftKeeper's AppShell,
+        // whose sidebar nav items also carry role="listitem", so an unscoped
+        // `.first()` picks up "Overview" and silently reads it as a code.
+        const firstCode = page
+            .getByRole('list', { name: 'Recovery codes' })
+            .getByRole('listitem')
+            .first();
         await expect(firstCode).toBeVisible({ timeout: 10_000 });
         recoveryCode = (await firstCode.textContent())?.trim() ?? '';
         expect(recoveryCode.length).toBeGreaterThan(0);

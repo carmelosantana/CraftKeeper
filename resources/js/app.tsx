@@ -2,7 +2,6 @@ import { createInertiaApp } from '@inertiajs/react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
-import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { bootEcho } from '@/lib/echo';
@@ -47,10 +46,24 @@ createInertiaApp({
             case name.startsWith('auth/'):
             case name.startsWith('onboarding/'):
                 return AuthLayout;
+            // NOT `[AppLayout, SettingsLayout]`. SettingsLayout wraps
+            // CraftKeeper's own AppShell itself (same as Settings/Overview
+            // above); pairing it with the starter kit's AppLayout swapped the
+            // whole chrome the moment anyone opened a settings page.
             case name.startsWith('settings/'):
-                return [AppLayout, SettingsLayout];
+                return SettingsLayout;
+            // Every page this application renders matches a case above —
+            // verified against every Inertia::render()/Route::inertia() name
+            // in app/ and routes/. This branch therefore never runs today.
+            //
+            // It returns null rather than the starter kit's AppLayout on
+            // purpose: a new page that forgets to wrap itself in AppShell
+            // should render visibly bare and get fixed immediately, instead
+            // of silently appearing in a different, pre-CraftKeeper chrome.
+            // That silent fallback is exactly how the settings pages spent
+            // this long looking like a different product.
             default:
-                return AppLayout;
+                return null;
         }
     },
     strictMode: true,

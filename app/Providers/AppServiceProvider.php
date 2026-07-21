@@ -473,13 +473,25 @@ class AppServiceProvider extends ServiceProvider
             app()->isProduction(),
         );
 
+        // Length and breach-checking, not composition rules.
+        //
+        // This previously demanded 12 characters with mixed case, numbers AND
+        // symbols, which made the one account this install will ever have
+        // needlessly painful to create — the first thing a new operator hits,
+        // on the onboarding step they cannot skip.
+        //
+        // Dropping the composition requirements is not a straight weakening.
+        // NIST SP 800-63B specifically advises against them: they push people
+        // toward predictable shapes ("Password1!") while adding little real
+        // entropy. What actually helps is length, kept here, and refusing
+        // passwords already known to be breached, also kept.
+        //
+        // uncompromised() sends only the first five characters of the
+        // password's SHA-1 to api.pwnedpasswords.com (k-anonymity — the
+        // password itself never leaves this machine) and fails open when
+        // that call cannot be made, so an air-gapped install still works.
         Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()
+            ? Password::min(10)->uncompromised()
             : null,
         );
     }
