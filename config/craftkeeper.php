@@ -35,6 +35,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Hosts
+    |--------------------------------------------------------------------------
+    |
+    | Extra hostnames this installation may legitimately be reached on, beyond
+    | the host in APP_URL. Comma-separated, exact hostnames (no scheme, no
+    | port) — e.g. "craftkeeper.lan,192.168.1.50".
+    |
+    | Only needed when CraftKeeper answers on more than one name: a LAN address
+    | as well as a proxied domain, say. Leave it unset if APP_URL is the only
+    | way in.
+    |
+    | See App\Providers\AppServiceProvider::trustedHostPatterns() for exactly
+    | which hosts end up trusted and when the check is enforced at all.
+    |
+    */
+
+    'trusted_hosts' => env('TRUSTED_HOSTS'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Minecraft Root
     |--------------------------------------------------------------------------
     |

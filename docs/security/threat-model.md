@@ -93,6 +93,28 @@ enters, and validated/bounded/redacted before it can affect anything.
 
 ## Known, accepted residual risk
 
+- **An installation that never sets `APP_URL` gets no Host-header check.**
+  `App\Providers\AppServiceProvider::trustedHostPatterns()` returns an
+  empty set — which Symfony treats as "accept any host" — while `APP_URL`
+  is still Laravel's `http://localhost` default and `TRUSTED_HOSTS` is
+  unset. The alternative was enforcing a guessed list, which rejects the
+  LAN address or container hostname such an install is almost certainly
+  being reached on: a working deployment broken to defend a threat that
+  only matters once the app is genuinely published. The trade is that a
+  production deployment which forgets `APP_URL` keeps the pre-existing
+  reflection behaviour.
+  A bare `localhost` does not count as a declaration either, for the same
+  reason — it is the framework default, and it is what
+  `compose.legendary.yml` ships, since that stack is designed to be reached
+  at `http://localhost:8080` on the machine running it. Such an install is
+  not published under a real hostname, so a poisoned link would have to be
+  delivered to someone who can already reach the operator's own loopback.
+  `compose.example.yml`, which describes a published deployment, sets a real
+  host and is therefore checked.
+  The check enables itself the moment a real host is declared. Revisit if a
+  first-run readiness warning for "APP_URL is still the default" is ever
+  added — that is the natural place to surface this, and it is out of scope
+  here.
 - **Minecraft console output is not secret-scrubbed.** Unlike every
   CraftKeeper-owned secret (RCON password, AI API key, schema-flagged
   config values — all covered by `App\Ai\SecretRedactor`/`App\Config\
@@ -176,6 +198,26 @@ enters, and validated/bounded/redacted before it can affect anything.
   `config/session.php`'s `http_only=true`/`same_site=lax`/`secure=null`
   which auto-activates over HTTPS via `TrustProxies`) — verified present,
   not newly added.
+- Host-header trust — `Illuminate\Http\Middleware\TrustHosts`, configured
+  from `App\Providers\AppServiceProvider::trustedHostPatterns()` (wired in
+  `bootstrap/app.php`). Absolute URLs are built from the incoming request,
+  and password-reset and email-verification links are absolute, so an
+  unchecked `Host` header lets an attacker have a correctly-signed reset
+  link mailed to a victim pointing at the attacker's own domain; it also
+  enables cache poisoning behind a shared cache. nginx cannot decide this
+  — `docker/nginx/default.conf` serves `server_name _` because the image
+  is published under whatever hostname the operator picks.
+  Trusted: the host of `APP_URL`, every entry in `TRUSTED_HOSTS`, and the
+  loopback literals (a link to `localhost`/`127.0.0.1` resolves to the
+  victim's own machine, so it cannot deliver anyone to an attacker, and
+  trusting them keeps `docker run -p 8123:8080` and the image health check
+  working). Patterns are anchored — Symfony evaluates each as an unanchored
+  regex, so a bare `localhost` would also match
+  `evil.localhost.example.com`. An untrusted host is rejected with **400
+  Bad Request** (Symfony's `SuspiciousOperationException`; note this is a
+  400, not a 403). Enforcement is off while `APP_URL` is still Laravel's
+  `http://localhost` default and `TRUSTED_HOSTS` is unset — see "Known,
+  accepted residual risk" below.
 - Rate limits — `login`/`two-factor`/`passkeys` (pre-existing, Fortify);
   `api` (pre-existing, Task 17); `ai`/`uploads`/`tokens`/`mcp` (Task 20,
   `App\Providers\AppServiceProvider::configureApiRateLimiting()`).

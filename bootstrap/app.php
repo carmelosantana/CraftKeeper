@@ -10,6 +10,7 @@ use App\Http\Middleware\EnsureApiScope;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
+use App\Providers\AppServiceProvider;
 use App\Server\LogTailService;
 use App\Support\Api\ApiError;
 use App\Support\Api\Exceptions\IdempotencyKeyConflict;
@@ -64,6 +65,25 @@ return Application::configure(basePath: dirname(__DIR__))
         // wrapper around the same `TrustProxies::at()`/`::withHeaders()`
         // static calls AppServiceProvider makes directly, once config
         // actually exists.
+
+        // Trusted hosts, by contrast, MUST be registered from here:
+        // unlike TrustProxies, `Illuminate\Http\Middleware\TrustHosts` is
+        // only added to the global stack when this method is called (see
+        // Illuminate\Foundation\Configuration\Middleware::getGlobalMiddleware()).
+        // The config-is-not-loaded-yet problem described above is avoided
+        // by passing a CLOSURE rather than an array: TrustHosts resolves a
+        // callable lazily, per request, long after configuration exists.
+        //
+        // `subdomains: false` because the patterns are built explicitly and
+        // already anchored; leaving it on would append a second, implicit
+        // `^(.+\.)?<app.url host>$` pattern, which would both widen the set
+        // to every subdomain and — worse — make the list non-empty even
+        // when trustedHostPatterns() deliberately returns none, turning
+        // enforcement on for unconfigured installs.
+        $middleware->trustHosts(
+            at: static fn (): array => AppServiceProvider::trustedHostPatterns(),
+            subdomains: false,
+        );
 
         // Task 20: cheap, DB-free headers (nosniff/referrer-policy/HSTS/
         // X-Frame-Options — see SecurityHeaders' own docblock) apply to

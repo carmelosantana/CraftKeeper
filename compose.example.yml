@@ -13,6 +13,12 @@ services:
       - minecraft:/minecraft
       - craftkeeper_data:/data
     environment:
+      # Setting this to a real host also switches on Host-header checking:
+      # CraftKeeper then answers only to this host, the loopback names, and
+      # anything in TRUSTED_HOSTS, so a poisoned Host cannot turn a
+      # password-reset link into a link to someone else's domain. If you also
+      # reach the panel by LAN address or a second domain, list it:
+      #   TRUSTED_HOSTS: "craftkeeper.lan,192.168.1.50"
       APP_URL: https://craftkeeper.example.com
       APP_KEY: ${CRAFTKEEPER_APP_KEY}
       MINECRAFT_ROOT: /minecraft

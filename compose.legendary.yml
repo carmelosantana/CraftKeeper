@@ -47,6 +47,12 @@ services:
     # to its unprivileged user. Legendary picks its own gid via `useradd -r`,
     # so this is resolved at runtime rather than pinned to a number here.
     environment:
+      # Reaching this from another machine — a LAN address, or a domain
+      # behind a proxy? Put that hostname here rather than localhost. Doing
+      # so also switches on Host-header checking, so CraftKeeper stops
+      # answering to hostnames it was never published under and a poisoned
+      # Host cannot turn a password-reset link into a link to someone else's
+      # domain. Add TRUSTED_HOSTS for any additional names it answers to.
       APP_URL: http://localhost:8080
       APP_KEY: ${CRAFTKEEPER_APP_KEY}
       MINECRAFT_ROOT: /minecraft

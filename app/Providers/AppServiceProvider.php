@@ -194,6 +194,86 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
+     * Host patterns Illuminate\Http\Middleware\TrustHosts will accept.
+     *
+     * Without this, any client-supplied Host header is reflected straight
+     * into generated absolute URLs:
+     *
+     *   curl -H "Host: evil.example.com" http://127.0.0.1:8123/
+     *   -> Location: http://evil.example.com/onboarding
+     *
+     * That matters here because password-reset and email-verification links
+     * are absolute URLs built from the incoming request. A poisoned Host
+     * therefore mails a working, correctly-signed reset link pointing at an
+     * attacker's domain. It also lets a shared cache in front of the app be
+     * poisoned. nginx cannot prevent it — docker/nginx/default.conf serves
+     * `server_name _` because the container is published on whatever
+     * hostname the operator chooses, so the app is the portable place to
+     * decide which of those names are real.
+     *
+     * Passed as a closure to Middleware::trustHosts() in bootstrap/app.php:
+     * that closure runs before configuration is loaded (see that file's own
+     * comment on TRUSTED_PROXIES), but TrustHosts resolves a callable lazily
+     * per request, by which point config() exists.
+     *
+     * What gets trusted:
+     *
+     *   - the host of APP_URL, which is the operator's own declaration of
+     *     where this installation lives;
+     *   - every entry in TRUSTED_HOSTS, for installations reachable under
+     *     more than one name;
+     *   - the loopback literals. A link pointing at localhost or 127.0.0.1
+     *     resolves to the victim's own machine, so it cannot deliver anyone
+     *     to an attacker — and trusting them keeps `docker run -p 8123:8080`
+     *     and the image's own health check working.
+     *
+     * Returning an empty array disables the check (Symfony only validates
+     * when at least one pattern is set). That is deliberate for the
+     * unconfigured case: with APP_URL still on Laravel's `http://localhost`
+     * default and no TRUSTED_HOSTS, the operator has not told us any real
+     * hostname, and enforcing would reject the LAN address or container
+     * hostname they are almost certainly using. Guessing wrong there breaks
+     * a working install to defend a threat that only exists once the app is
+     * actually published somewhere. Set APP_URL — as compose.example.yml
+     * does — and the check turns itself on.
+     *
+     * Patterns are anchored regexes, not literals: Symfony wraps each one as
+     * `{pattern}i` and runs preg_match, so a bare "localhost" would also
+     * match the attacker-controlled "evil.localhost.example.com".
+     *
+     * @return array<int, string>
+     */
+    public static function trustedHostPatterns(): array
+    {
+        $configured = [];
+
+        if ($appHost = parse_url((string) config('app.url'), PHP_URL_HOST)) {
+            $configured[] = $appHost;
+        }
+
+        foreach (explode(',', (string) config('craftkeeper.trusted_hosts')) as $host) {
+            if (($host = trim($host)) !== '') {
+                $configured[] = $host;
+            }
+        }
+
+        // "localhost" alone is the framework default, not a declaration, so
+        // it does not by itself switch enforcement on.
+        $declared = array_values(array_diff(array_unique($configured), ['localhost']));
+
+        if ($declared === []) {
+            return [];
+        }
+
+        $hosts = array_unique([...$declared, 'localhost', '127.0.0.1', '::1', '[::1]']);
+
+        return array_map(
+            static fn (string $host): string => '^'.preg_quote($host).'$',
+            array_values($hosts),
+        );
+    }
+
+    /**
      * Task 18's ambiguity resolution #2: authorization-code + PKCE only.
      * `$passwordGrantEnabled`/`$implicitGrantEnabled` already default
      * false in this Passport version — set explicitly anyway so the
