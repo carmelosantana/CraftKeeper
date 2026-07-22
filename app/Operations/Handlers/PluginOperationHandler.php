@@ -8,6 +8,7 @@ use App\Filesystem\MinecraftFilesystem;
 use App\Filesystem\MinecraftPath;
 use App\Models\AuditEvent;
 use App\Models\Operation;
+use App\Models\PluginArtifact;
 use App\Models\PluginOperationPlan;
 use App\Models\PluginRollbackArtifact;
 use App\Operations\OperationActorType;
@@ -179,6 +180,8 @@ final class PluginOperationHandler implements OperationHandler
 
         $plan->forceFill(['rollback_artifact_id' => $rollbackArtifactId])->save();
 
+        $this->recordArtifactProvenance($plan, strlen($bytes));
+
         $verb = $operation->type === OperationType::PluginUpdate ? 'Updated' : 'Installed';
 
         AuditEvent::query()->create([
@@ -194,6 +197,59 @@ final class PluginOperationHandler implements OperationHandler
             "{$verb} {$plan->target_relative_path}. A server restart is required to take effect.",
             ['restart_required' => true, 'target' => $plan->target_relative_path],
         );
+    }
+
+    /**
+     * Record WHERE these exact bytes came from, keyed by their checksum.
+     *
+     * App\Plugins\PluginInventoryService::resolveProvenanceForNew() reads
+     * `plugin_artifacts` by sha256 to decide whether a file on disk is
+     * attributable to a known source or is an untraceable manual drop. Until
+     * now nothing ever wrote to that table — it was read in two places and
+     * written in none — so the lookup always missed and EVERY plugin was
+     * labelled "Manual", including one CraftKeeper had itself just downloaded
+     * from the catalog and checksum-verified. The Catalog/Hangar/Modrinth
+     * states of resources/js/components/craftkeeper/ProvenanceBadge.tsx were
+     * unreachable in practice.
+     *
+     * The source is not inferred here: the plan recorded it at propose time
+     * from the resolved App\Catalog\Data\PluginRelease (or Manual for an
+     * upload), and this persists that same value verbatim.
+     *
+     * Content-addressed, so `sha256` is unique and this is an upsert:
+     * installing the same bytes twice, or rolling back onto a checksum
+     * already seen, must not collide. Deliberately AFTER the atomic write —
+     * an artifact row for a file that never landed would be a lie about disk
+     * state, which is the class of bug this whole method exists to avoid.
+     *
+     * Best-effort: provenance is a labelling concern, and failing an install
+     * that has already succeeded on disk — leaving the operation marked
+     * failed while the plugin is in fact installed — would be a far worse
+     * outcome than an unattributed jar.
+     */
+    private function recordArtifactProvenance(PluginOperationPlan $plan, int $sizeBytes): void
+    {
+        $sha256 = (string) $plan->verified_sha256;
+
+        if ($sha256 === '') {
+            return;
+        }
+
+        $source = $plan->plan['source'] ?? null;
+        $version = $plan->plan['artifact']['version'] ?? null;
+
+        try {
+            PluginArtifact::query()->updateOrCreate(
+                ['sha256' => $sha256],
+                [
+                    'size_bytes' => $sizeBytes,
+                    'source' => is_string($source) && $source !== '' ? $source : null,
+                    'version' => is_string($version) && $version !== '' ? $version : null,
+                ],
+            );
+        } catch (Throwable) {
+            // See docblock: never fail a completed install over a label.
+        }
     }
 
     private function executeDisable(Operation $operation): OperationResult

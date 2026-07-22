@@ -5,6 +5,7 @@ use App\Filesystem\AtomicFileWriter;
 use App\Filesystem\LocalMinecraftFilesystem;
 use App\Filesystem\SnapshotStore;
 use App\Models\AuditEvent;
+use App\Models\PluginArtifact;
 use App\Models\PluginInstallation;
 use App\Models\PluginOperationPlan;
 use App\Models\PluginRollbackArtifact;
@@ -14,7 +15,9 @@ use App\Operations\OperationAuthor;
 use App\Operations\OperationService;
 use App\Operations\OperationStatus;
 use App\Plugins\Exceptions\PluginChecksumMismatch;
+use App\Plugins\PluginInventoryService;
 use App\Plugins\PluginLifecycleService;
+use App\Plugins\PluginProvenance;
 use App\Plugins\PluginRollbackStore;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -392,4 +395,115 @@ it('undoes an update via the generic operation rollback when nothing has changed
 
     expect($result->error_code)->toBeNull()
         ->and(file_get_contents($this->minecraftRoot.'/plugins/Foo.jar'))->toBe($v1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Provenance: WHERE these bytes came from is recorded, not inferred later
+|--------------------------------------------------------------------------
+|
+| `plugin_artifacts` is read by App\Plugins\PluginInventoryService to
+| attribute a file on disk to a known source. Until 1.1.3 nothing ever wrote
+| to it — read in two places, written in none — so the lookup always missed
+| and every plugin was labelled "Manual", including one CraftKeeper had just
+| downloaded from the catalog and checksum-verified itself. The
+| Catalog/Hangar/Modrinth states of ProvenanceBadge.tsx were unreachable.
+|
+*/
+
+it('records the catalog as the artifact source when a catalog release is installed', function () {
+    $bytes = jarBytes('EssentialsX');
+    Http::fake(['*' => Http::response($bytes)]);
+    $release = PluginReleaseFactory::make(
+        sha256: hash('sha256', $bytes),
+        name: 'EssentialsX',
+        source: PluginProvenance::Catalog,
+    );
+
+    $operation = $this->lifecycle->proposeInstall($release, $this->author);
+    $this->operations->approve($operation->id, $this->admin);
+    $this->operations->execute($operation->id);
+
+    $artifact = PluginArtifact::query()->where('sha256', hash('sha256', $bytes))->first();
+
+    expect($artifact)->not->toBeNull()
+        ->and($artifact->source)->toBe(PluginProvenance::Catalog->value)
+        ->and($artifact->size_bytes)->toBe(strlen($bytes));
+});
+
+it('labels the reconciled installation with that source instead of Manual', function () {
+    // The end-to-end shape of the bug as reported: install from the catalog,
+    // then look at the plugin list.
+    $bytes = jarBytes('EssentialsX');
+    Http::fake(['*' => Http::response($bytes)]);
+    $release = PluginReleaseFactory::make(
+        sha256: hash('sha256', $bytes),
+        name: 'EssentialsX',
+        source: PluginProvenance::Hangar,
+    );
+
+    $operation = $this->lifecycle->proposeInstall($release, $this->author);
+    $this->operations->approve($operation->id, $this->admin);
+    $this->operations->execute($operation->id);
+
+    app(PluginInventoryService::class)->reconcile();
+
+    $installation = PluginInstallation::query()
+        ->where('relative_path', 'plugins/EssentialsX.jar')
+        ->first();
+
+    expect($installation)->not->toBeNull()
+        ->and($installation->provenance)->toBe(PluginProvenance::Hangar->value);
+});
+
+it('updates an existing artifact row rather than colliding on its unique checksum', function () {
+    // sha256 is UNIQUE on plugin_artifacts. A row for these exact bytes can
+    // already exist — the same artifact installed before, or recorded under
+    // a different path — and a plain insert would throw AFTER the file had
+    // already been written to disk, failing an install that in fact
+    // succeeded.
+    $bytes = jarBytes('EssentialsX');
+    Http::fake(['*' => Http::response($bytes)]);
+    $sha = hash('sha256', $bytes);
+
+    PluginArtifact::query()->create([
+        'sha256' => $sha,
+        'size_bytes' => 1,
+        'source' => null,
+        'version' => null,
+    ]);
+
+    $release = PluginReleaseFactory::make(sha256: $sha, name: 'EssentialsX', source: PluginProvenance::Catalog);
+    $operation = $this->lifecycle->proposeInstall($release, $this->author);
+    $this->operations->approve($operation->id, $this->admin);
+    $result = $this->operations->execute($operation->id);
+
+    $artifact = PluginArtifact::query()->where('sha256', $sha)->first();
+
+    expect($result->status)->toBe(OperationStatus::Succeeded)
+        ->and(PluginArtifact::query()->where('sha256', $sha)->count())->toBe(1)
+        // The previously-unattributed row now carries the real source.
+        ->and($artifact->source)->toBe(PluginProvenance::Catalog->value)
+        ->and($artifact->size_bytes)->toBe(strlen($bytes));
+});
+
+it('records nothing when the install never reaches disk', function () {
+    // An artifact row for a file that was never written would be a lie about
+    // disk state — the exact class of bug the handler exists to avoid.
+    $bytes = jarBytes('EssentialsX');
+    Http::fake(['*' => Http::response($bytes)]);
+    $release = PluginReleaseFactory::make(sha256: hash('sha256', $bytes), name: 'EssentialsX');
+
+    $operation = $this->lifecycle->proposeInstall($release, $this->author);
+    $plan = PluginOperationPlan::forOperation($operation->id);
+
+    // Tamper with the staged artifact so the pre-write checksum re-check
+    // rejects it and execute() returns before writing anything.
+    file_put_contents($plan->quarantine_path, 'not the verified bytes');
+
+    $this->operations->approve($operation->id, $this->admin);
+    $result = $this->operations->execute($operation->id);
+
+    expect($result->status)->toBe(OperationStatus::Failed)
+        ->and(PluginArtifact::query()->count())->toBe(0);
 });

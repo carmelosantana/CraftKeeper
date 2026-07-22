@@ -11,6 +11,44 @@ heading format exact.
 
 Nothing yet.
 
+## [1.1.3] - 2026-07-22
+
+### Fixed
+
+- **Every plugin was labelled "Manual", whatever its actual origin** —
+  including one CraftKeeper had just downloaded from the catalog, checksum-
+  verified, and installed itself.
+
+  `App\Plugins\PluginInventoryService` attributes a file on disk to a known
+  source by looking it up in `plugin_artifacts` by checksum. **Nothing ever
+  wrote to that table** — it was read in two places and written in none — so
+  the lookup always missed and every installation fell back to `Manual`. The
+  `Catalog` / `Hangar` / `Modrinth` states of `ProvenanceBadge` were
+  unreachable in practice: the display half was built, the recording half was
+  not (`App\Models\PluginArtifact`'s own docblock says "the record Task 14/15
+  populate", which never happened).
+
+  The install now records the artifact — checksum, size, source, version —
+  at the moment the bytes land. The source is not inferred: the operation
+  plan already captured it at propose time from the resolved catalog release,
+  and that exact value is persisted.
+
+  Written **after** the atomic write, so a row can never claim an origin for
+  a file that was never installed, and as an upsert, since `sha256` is unique
+  and the same bytes can legitimately be installed more than once. Recording
+  is best-effort: an install that has already succeeded on disk is never
+  failed over a label.
+
+  Found by installing a plugin from the new catalog end to end and looking at
+  the result, not by reading code.
+
+**Not affected, contrary to an earlier guess:** plugin updates. Those resolve
+their download from the source in the request, not from stored provenance, so
+a wrong label never misdirected an update. The defect was traceability — the
+badge could not distinguish a jar CraftKeeper fetched from a signed catalog
+from one someone dropped in by hand, which is the only question it exists to
+answer.
+
 ## [1.1.2] - 2026-07-22
 
 ### Fixed
