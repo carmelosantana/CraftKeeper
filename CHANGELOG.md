@@ -7,7 +7,7 @@ and versioning follows [Semantic Versioning](https://semver.org/).
 notes directly from the matching `## [X.Y.Z]` section below, so keep the
 heading format exact.
 
-## [Unreleased]
+## [1.1.5] - 2026-07-22
 
 ### Fixed
 
@@ -41,6 +41,17 @@ heading format exact.
 
   `server:sample-state` still exists for taking a single sample on demand,
   and still backs the "Test connection" button.
+
+- **The Console said "No console output yet." when a filter simply matched
+  nothing.** That is the one message meaning the server has gone quiet, and
+  it appeared over a console that had loaded plenty of lines — so a typo in
+  the filter box looked exactly like a dead server.
+
+  The empty state was decided from the post-filter list, which made the two
+  situations indistinguishable by construction: nothing received, and
+  everything received but excluded. A filtered-out view now says so
+  instead, and a genuinely empty console still reads "No console output
+  yet."
 
 ## [1.1.4] - 2026-07-22
 

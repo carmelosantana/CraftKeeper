@@ -35,7 +35,7 @@ services:
   craftkeeper:
     # Pinned to an explicit release; see compose.example.yml for why :latest
     # is intentionally not used.
-    image: ghcr.io/carmelosantana/craftkeeper:v1.1.4
+    image: ghcr.io/carmelosantana/craftkeeper:v1.1.5
     container_name: craftkeeper
     restart: unless-stopped
     depends_on:
