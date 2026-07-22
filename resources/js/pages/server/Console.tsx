@@ -229,8 +229,18 @@ export default function ServerConsole(props: ServerConsoleProps) {
                             style={{ backgroundColor: 'var(--ck-bg)' }}
                         >
                             {visibleLines.length === 0 ? (
-                                <p style={{ color: 'var(--ck-text-2)' }}>
-                                    No console output yet.
+                                <p
+                                    data-test="console-empty"
+                                    style={{ color: 'var(--ck-text-2)' }}
+                                >
+                                    {/* Two different silences, and conflating
+                                        them lies to the operator: a console
+                                        that has received nothing looks
+                                        identical to one whose filter simply
+                                        excluded every loaded line. */}
+                                    {entries.length === 0
+                                        ? 'No console output yet.'
+                                        : 'No lines match this filter.'}
                                 </p>
                             ) : (
                                 visibleLines.map((entry) => (
