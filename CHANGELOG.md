@@ -11,6 +11,102 @@ heading format exact.
 
 Nothing yet.
 
+## [1.1.0] - 2026-07-21
+
+Realtime streaming now works in the published image — it previously could
+not, however the container was configured. Alongside that: the panel a user
+actually lands on after logging in, automatic adaptation to the Minecraft
+volume's ownership, Host-header trust, and lighter password rules.
+
+**Correction to 1.0.1's own notes below**, which claimed it restored the
+moving tags: it did not. Its vulnerability scan failed — `.trivyignore.yaml`
+was passed through the Trivy action's `trivyignores` input, which builds a
+*plain-text* ignorefile, so every YAML entry was silently discarded and the
+gate tripped on CVEs that were meant to be ignored. `publish-moving-tags` is
+gated behind that scan, so `:latest`, `:v1`, and `:v1.0` were withheld for a
+second consecutive release. Fixed here via `TRIVY_IGNOREFILE`; this is the
+first release expected to publish them.
+
+### Added
+
+- **Live console and operation-progress streaming in the published image.**
+  Enabling it is `BROADCAST_CONNECTION=reverb` plus the three `REVERB_APP_*`
+  credentials — nothing else, and nothing to rebuild.
+
+  Deliberately NOT done with Docker build args, which cannot work for a
+  *published* image: `VITE_*` is inlined at build time, so the image would
+  carry whatever key the CI runner happened to build with. The app key is
+  published at runtime instead, as a `<meta>` tag from the Inertia root view.
+  It is not a secret — it identifies a websocket client exactly as a Pusher
+  app key does. `REVERB_APP_SECRET` never reaches the browser, and a test
+  asserts that.
+
+  The browser connects to the page's own origin rather than `REVERB_HOST`/
+  `REVERB_PORT`, because Nginx already proxies the Pusher protocol's `/app`
+  path through to Reverb — so the endpoint follows whatever port or reverse-
+  proxy hostname you publish on. Build-time `VITE_REVERB_*` still wins when
+  present, leaving `npm run dev` untouched.
+
+- **CraftKeeper adapts to the Minecraft volume's ownership by itself.**
+  Running it beside [Legendary Java Minecraft (Geyser + Floodgate)][legendary]
+  no longer needs a hand-written `group_add` or a `chmod` on the shared
+  volume: the entrypoint reads the volume's owning group at startup, joins
+  it, ensures the directories it must write are group-writable, and then
+  drops to its unprivileged user. The server image picks its own uid/gid at
+  install time, so this can only be resolved at runtime.
+
+- An end-to-end Playwright test for operation-progress streaming, running
+  against a real Reverb server. The transition is driven from a second page,
+  because approving from the watched page is a full Inertia visit that would
+  re-render the panel from the response — that assertion would pass with the
+  socket unplugged.
+
+### Fixed
+
+- **Every realtime page served a blank screen.** Assistant, the Console, and
+  anything rendering operation progress returned HTTP 200 with an empty body.
+  The image builds with no `.env`, so every `VITE_REVERB_*` was undefined in
+  the published bundle; Echo handed that undefined key to Pusher, whose
+  constructor throws synchronously during render. Every suite passed because
+  they all run against `artisan serve` with a real `.env` — the one
+  environment nobody exercised is the one that ships. With no key built in,
+  Echo now gets its own `null` broadcaster and each page renders its designed
+  degraded state.
+
+- **Broadcasts failed with `Unable to parse URI: https://:443`.**
+  `REVERB_HOST` was unset in the image and Laravel defaults to no host, port
+  443, https. The socket connected and the channel authorised, then nothing
+  was ever delivered — a failure that reads exactly like a client bug. The
+  Dockerfile now defaults `REVERB_HOST`/`PORT`/`SCHEME` to the internal
+  publish hop Supervisor actually binds.
+
+- **Any client-supplied `Host` header was reflected into generated absolute
+  URLs**, so a poisoned Host could mail a victim a correctly-signed, working
+  password-reset link pointing at an attacker's domain. Trust is now limited
+  to `APP_URL`'s host, the new `TRUSTED_HOSTS`, and the loopback literals.
+
+- **Logging in landed on the starter kit's dashboard**, and all eight
+  settings pages rendered in the starter kit's chrome — a different sidebar,
+  a generic heading, and a second nav list stacked under CraftKeeper's own.
+
+- The Content-Security-Policy advertised a websocket origin even when
+  broadcasting was disabled. Both websocket origins are now gated on Reverb
+  actually being the active broadcaster.
+
+### Changed
+
+- **Password rules for the single admin account are length-and-breach only**
+  (`min(10)->uncompromised()`), replacing 12 characters plus mixed case,
+  numbers and symbols. Not a straight weakening: NIST SP 800-63B advises
+  against composition rules, which push people toward predictable shapes
+  while adding little entropy. The breach check sends only the first five
+  characters of the password's SHA-1 (k-anonymity) and fails open when
+  unreachable, so air-gapped installs still work.
+
+- `compose.example.yml` and `compose.legendary.yml` document enabling
+  realtime, and no longer carry the manual `group_add`/`chmod` steps that the
+  entrypoint now handles.
+
 ## [1.0.1] - 2026-07-18
 
 Repairs to the container image and the release pipeline, both of which ran

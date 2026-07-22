@@ -1,16 +1,20 @@
 # CraftKeeper alongside Legendary Java Minecraft (Geyser + Floodgate).
 #
-# Full walkthrough, including the two one-time fixes this file depends on:
-#   docs/installation/legendary-minecraft.md
+# Full walkthrough: docs/installation/legendary-minecraft.md
 #
 # Before `docker compose up`, set:
 #   export CRAFTKEEPER_APP_KEY="base64:$(head -c 32 /dev/urandom | base64)"
 #
-# After the minecraft service has seeded its data directory, apply both
-# one-time fixes (they persist across restarts):
-#   docker exec -u 0 minecraft chmod 775 /minecraft
-#   docker exec minecraft id -g minecraft     # confirm this matches group_add
-# and enable RCON in /minecraft/server.properties. See the doc.
+# The volume-ownership fixes this file used to require (a `chmod 775` on
+# /minecraft and a `group_add` matching the server's gid) are gone as of
+# 1.1.0 — CraftKeeper's entrypoint reads the volume's owning group at
+# startup and adapts to it. See the `craftkeeper` service below.
+#
+# One manual step remains, because it is the Minecraft server's own
+# configuration rather than CraftKeeper's: enable RCON in
+# /minecraft/server.properties (enable-rcon=true plus an rcon.password) and
+# restart the minecraft service so it takes effect. Enter that password in
+# CraftKeeper's onboarding, which tests the connection on save.
 
 services:
   minecraft:
@@ -31,7 +35,7 @@ services:
   craftkeeper:
     # Pinned to an explicit release; see compose.example.yml for why :latest
     # is intentionally not used.
-    image: ghcr.io/carmelosantana/craftkeeper:v1.0.1
+    image: ghcr.io/carmelosantana/craftkeeper:v1.1.0
     container_name: craftkeeper
     restart: unless-stopped
     depends_on:
