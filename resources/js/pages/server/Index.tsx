@@ -131,7 +131,12 @@ export default function ServerIndex({
                                 className="text-[11.5px]"
                                 style={{ color: 'var(--ck-text-2)' }}
                             >
-                                Discovered from {version.source === 'jar' ? 'a server JAR filename' : 'the startup log'}
+                                Discovered from{' '}
+                                {version.source === 'jar'
+                                    ? 'a server JAR filename'
+                                    : version.source === 'log'
+                                      ? 'the startup log'
+                                      : "the server's own version_history.json"}
                             </p>
                         </div>
                     ) : (

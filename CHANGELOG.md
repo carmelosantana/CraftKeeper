@@ -11,6 +11,48 @@ heading format exact.
 
 Nothing yet.
 
+## [1.1.2] - 2026-07-22
+
+### Fixed
+
+- **Server version detection failed on ordinary Paper servers, including
+  the deployment CraftKeeper primarily targets.** Both existing strategies
+  break on [Legendary Java Minecraft (Geyser + Floodgate)][legendary]:
+
+  - the server JAR is `paperclip.jar` — the bootstrap's generic name,
+    carrying no version to parse; and
+  - the startup banner only lives in `logs/latest.log` until that file
+    **rotates**, after which there is nothing left to read.
+
+  So the version resolved on a freshly-booted server and silently became
+  "Version unknown" a day later. Found while verifying the 1.1.1 shell fix
+  against a real server: the same detector answered `Paper 26.1.2` in the
+  morning and `unknown` that evening, with nothing having changed but the
+  log rotating.
+
+  A third source is now consulted when the first two find nothing:
+  `version_history.json`, which the Paperclip bootstrap (Paper, Purpur,
+  Folia) writes at the Minecraft root and updates on every boot. It is
+  durable across log rotation and is the server's own record rather than a
+  filename convention being inferred from.
+
+  Its label is used **verbatim** — e.g. `1.21.4-130-abcdef1 (MC: 1.21.4)`
+  rather than a tidied "Paper 1.21.4". The file does not say which
+  distribution wrote it (Paper, Purpur and Folia all use Paperclip), so
+  prefixing a brand would be inventing one. Same rule the log banner
+  already follows: a self-report is passed through, a convention is parsed.
+
+  Consulted **last**, so no install that already resolves a version gets a
+  different answer — only the previously-unavailable case gains one. Read
+  bounded and validated (non-object JSON, a missing or non-string key, an
+  empty value, or an absurdly long one all yield "unknown" rather than
+  putting junk on screen). Verified against a real server's actual file,
+  not only a synthetic fixture.
+
+- The Server page described every version as discovered from either "a
+  server JAR filename" or "the startup log" via a two-branch ternary, so a
+  third source would have been mislabelled as the log.
+
 ## [1.1.1] - 2026-07-22
 
 The application shell was displaying invented server and account data on

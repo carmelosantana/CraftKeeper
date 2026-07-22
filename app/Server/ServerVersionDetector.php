@@ -8,7 +8,7 @@ use App\Filesystem\MinecraftPath;
 
 /**
  * Task 12's "Server detail shows ... version data discovered from
- * logs/JAR metadata." Two independent, best-effort sources are tried, in
+ * logs/JAR metadata." Three independent, best-effort sources are tried, in
  * order — the first that yields a real value wins:
  *
  *   1. A root-level server JAR filename (e.g. "paper-1.21.4-130.jar"),
@@ -18,13 +18,30 @@ use App\Filesystem\MinecraftPath;
  *      startup banner vanilla/Paper/Purpur/Spigot/Folia print once, near
  *      the top of the log, on every boot ("Starting minecraft server
  *      version ..." / "This server is running Paper version ...").
+ *   3. version_history.json, which the Paperclip bootstrap (Paper, Purpur,
+ *      Folia) writes at the Minecraft root and updates on every boot.
  *
- * Neither source is guaranteed to exist (a fresh/unbooted server has no
- * log banner yet; a non-standard JAR filename carries no parseable
- * version). When neither yields anything, this returns
- * ServerVersion::unavailable() with a specific reason — never a guessed
- * or fabricated label, matching the "no fabricated zero" principle
- * App\Server\ServerStatusService already applies to player counts.
+ * THE THIRD SOURCE EXISTS BECAUSE THE FIRST TWO BOTH FAIL ON A COMPLETELY
+ * ORDINARY PAPER SERVER, which is how CraftKeeper's own primary supported
+ * deployment (TheRemote/Legendary-Java-Minecraft-Geyser-Floodgate) ships:
+ *
+ *   - its JAR is `paperclip.jar` — the bootstrap's generic name, carrying
+ *     no version at all, so strategy 1 finds nothing to parse; and
+ *   - the startup banner only lives in logs/latest.log until that file
+ *     ROTATES, after which strategy 2 has nothing to find either.
+ *
+ * So version detection worked on a freshly-booted server and silently
+ * stopped working a day later, on exactly the setup this project targets.
+ * version_history.json has neither problem: it is durable across log
+ * rotation and is the server's own record rather than a filename
+ * convention being inferred from.
+ *
+ * No source is guaranteed to exist (a fresh/unbooted server has no log
+ * banner yet; a vanilla or Fabric server writes no version_history.json).
+ * When none yields anything, this returns ServerVersion::unavailable()
+ * with a specific reason — never a guessed or fabricated label, matching
+ * the "no fabricated zero" principle App\Server\ServerStatusService
+ * already applies to player counts.
  *
  * Mirrors App\Config\ConfigDiscoveryService's own `canonicalRoot()`
  * pattern (config('craftkeeper.minecraft_root') + realpath()) rather than
@@ -40,6 +57,12 @@ final class ServerVersionDetector
     private const LOG_SCAN_MAX_BYTES = 65_536; // 64 KiB
 
     private const LOG_SCAN_MAX_LINES = 500;
+
+    private const VERSION_HISTORY_MAX_BYTES = 65_536; // 64 KiB
+
+    /** Long enough for any real self-reported version string, short enough
+     * that a junk value can never reach the UI as a label. */
+    private const VERSION_LABEL_MAX_CHARS = 120;
 
     /** @var array<string, string> */
     private const KNOWN_SOFTWARE = [
@@ -73,7 +96,69 @@ final class ServerVersionDetector
             return $fromLog;
         }
 
-        return ServerVersion::unavailable('No server JAR filename or startup log banner was found.');
+        // Last, not first, purely so this change cannot alter an answer any
+        // existing install already gets: everything that resolved before
+        // still resolves identically, and only the previously-unavailable
+        // case gains an answer.
+        $fromHistory = $this->detectFromVersionHistory($root);
+
+        if ($fromHistory instanceof ServerVersion) {
+            return $fromHistory;
+        }
+
+        return ServerVersion::unavailable(
+            'No server JAR filename, startup log banner, or version_history.json was found.'
+        );
+    }
+
+    /**
+     * Paperclip's own record of the version it last booted, e.g.
+     * `{"currentVersion":"1.21.4-130-abcdef1 (MC: 1.21.4)"}`.
+     *
+     * The label is that string VERBATIM. It reads oddly next to the
+     * filename-derived labels above ("Paper 1.21.4"), and that is
+     * deliberate: this file does not say which distribution wrote it —
+     * Paper, Purpur and Folia all use Paperclip — so prefixing a brand
+     * would be inventing one, and re-formatting the string would mean
+     * inferring structure from a field whose format is the server's to
+     * choose. Same reasoning the log banner already follows: a self-report
+     * is passed through, a convention is parsed.
+     */
+    private function detectFromVersionHistory(string $root): ?ServerVersion
+    {
+        $file = $root.'/version_history.json';
+
+        if (! is_file($file) || ! is_readable($file)) {
+            return null;
+        }
+
+        // Bounded like every other read here: this is an operator-supplied
+        // path and a malformed or hostile file must not be slurped whole.
+        $contents = @file_get_contents($file, length: self::VERSION_HISTORY_MAX_BYTES);
+
+        if ($contents === false) {
+            return null;
+        }
+
+        $decoded = json_decode($contents, true);
+
+        if (! is_array($decoded)) {
+            return null;
+        }
+
+        $current = $decoded['currentVersion'] ?? null;
+
+        if (! is_string($current)) {
+            return null;
+        }
+
+        $current = trim($current);
+
+        if ($current === '' || mb_strlen($current) > self::VERSION_LABEL_MAX_CHARS) {
+            return null;
+        }
+
+        return ServerVersion::known($current, 'version_history');
     }
 
     private function canonicalRoot(): ?string
