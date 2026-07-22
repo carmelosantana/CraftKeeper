@@ -3,6 +3,7 @@
 use App\Models\PluginArtifact;
 use App\Models\PluginInstallation;
 use App\Plugins\PluginInventoryService;
+use App\Plugins\PluginProvenance;
 use Illuminate\Support\Facades\File;
 use Tests\fixtures\plugins\JarFixtureBuilder;
 use Tests\Support\TempMinecraftRoot;
@@ -273,4 +274,86 @@ it('skips a directory named like a .jar file instead of crashing the whole recon
     expect($result->additions)->toHaveCount(1)
         ->and($result->additions[0]->name)->toBe('Essentials')
         ->and(PluginInstallation::query()->count())->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Adopting a source that only became known later (1.1.4)
+|--------------------------------------------------------------------------
+|
+| Provenance used to be evaluated at exactly two moments: first sighting,
+| and a checksum change. An installation already tracked as unattributed
+| therefore kept "Manual" forever, even once plugin_artifacts gained a row
+| naming its source — which is what every install predating 1.1.3 looks
+| like, and what a re-install of an identical version looks like (same
+| bytes, checksum unchanged, so the "changed" path never runs).
+|
+| The 1.1.3 tests only covered a FRESH install against a clean database,
+| which is why they passed while the real upgrade case did not.
+|
+*/
+
+it('adopts a known source for an already-tracked file whose bytes did not change', function () {
+    putPluginJar($this->minecraftRoot, 'Curse.jar', 'Curse', '0.2.2');
+    $sha = hash_file('sha256', $this->minecraftRoot.'/plugins/Curse.jar');
+
+    // Tracked before the source was known — exactly the row an upgrade from
+    // 1.1.2 leaves behind, and what a re-install of an identical version
+    // produces (same bytes, so the "checksum changed" path never runs).
+    $this->service->reconcile();
+    expect(PluginInstallation::query()->first()->provenance)
+        ->toBe(PluginProvenance::Manual->value);
+
+    PluginArtifact::query()->create([
+        'sha256' => $sha,
+        'size_bytes' => filesize($this->minecraftRoot.'/plugins/Curse.jar'),
+        'source' => PluginProvenance::Catalog->value,
+        'version' => '0.2.2',
+    ]);
+
+    $this->service->reconcile();
+
+    expect(PluginInstallation::query()->first()->provenance)
+        ->toBe(PluginProvenance::Catalog->value);
+});
+
+it('never overwrites an already-known source', function () {
+    putPluginJar($this->minecraftRoot, 'Curse.jar', 'Curse', '0.2.2');
+    $sha = hash_file('sha256', $this->minecraftRoot.'/plugins/Curse.jar');
+
+    $this->service->reconcile();
+    PluginInstallation::query()->first()
+        ->forceFill(['provenance' => PluginProvenance::Hangar->value])->save();
+
+    PluginArtifact::query()->create([
+        'sha256' => $sha,
+        'size_bytes' => filesize($this->minecraftRoot.'/plugins/Curse.jar'),
+        'source' => PluginProvenance::Catalog->value,
+        'version' => '0.2.2',
+    ]);
+
+    $this->service->reconcile();
+
+    // Only ever an upgrade FROM the unattributed value, never a rewrite of
+    // an attribution already made.
+    expect(PluginInstallation::query()->first()->provenance)
+        ->toBe(PluginProvenance::Hangar->value);
+});
+
+it('leaves an unattributed file unattributed when no artifact matches its bytes', function () {
+    putPluginJar($this->minecraftRoot, 'Curse.jar', 'Curse', '0.2.2');
+    $this->service->reconcile();
+
+    // An artifact for DIFFERENT bytes must never be borrowed.
+    PluginArtifact::query()->create([
+        'sha256' => hash('sha256', 'some other artifact entirely'),
+        'size_bytes' => 10,
+        'source' => PluginProvenance::Catalog->value,
+        'version' => '9.9.9',
+    ]);
+
+    $this->service->reconcile();
+
+    expect(PluginInstallation::query()->first()->provenance)
+        ->toBe(PluginProvenance::Manual->value);
 });

@@ -11,6 +11,34 @@ heading format exact.
 
 Nothing yet.
 
+## [1.1.4] - 2026-07-22
+
+### Fixed
+
+- **1.1.3's provenance fix did not reach any plugin that was already
+  installed.** It recorded the source correctly, and the badge still read
+  "Manual".
+
+  `reconcile()` evaluated provenance at exactly two moments: the first time
+  a file was seen, and whenever its checksum changed. An installation
+  already tracked as unattributed therefore kept that label forever, even
+  once `plugin_artifacts` gained a row naming its source. That covers every
+  plugin installed before upgrading to 1.1.3, and every re-install of an
+  identical version — same bytes in, checksum unchanged, so the "changed"
+  branch never ran.
+
+  Reconciliation now also adopts a source for an unchanged file when one
+  becomes known for exactly those bytes. Strictly an upgrade from `Manual`
+  — the "cannot attribute this" value — to a source recorded against that
+  checksum: it cannot overwrite an attribution already made, and cannot
+  invent one, because the artifact table is content-addressed and a matching
+  row describes literally these bytes.
+
+  1.1.3's tests only exercised a fresh install against an empty database,
+  which is why they passed while the actual upgrade path did not. Caught by
+  installing from the catalog on a real server and watching the badge fail
+  to change.
+
 ## [1.1.3] - 2026-07-22
 
 ### Fixed

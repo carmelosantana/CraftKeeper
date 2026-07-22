@@ -134,7 +134,7 @@ final class PluginInventoryService
             $sha256Changed = $existing->sha256 !== $entry->inspection->sha256;
             $provenance = $sha256Changed
                 ? $this->resolveProvenanceForChange($existing->provenance, $entry->inspection->sha256)
-                : $existing->provenance;
+                : $this->adoptKnownProvenance($existing->provenance, $entry->inspection->sha256);
 
             $existing->forceFill([...$attributes, 'provenance' => $provenance])->save();
 
@@ -310,6 +310,37 @@ final class PluginInventoryService
         return $artifact instanceof PluginArtifact && $artifact->source !== null
             ? $artifact->source
             : PluginProvenance::Manual->value;
+    }
+
+    /**
+     * Adopt a real source for an already-tracked file whose bytes have NOT
+     * changed, when one is now known for exactly those bytes.
+     *
+     * Without this, provenance was only ever evaluated at two moments: when
+     * a file was first seen, and when its checksum changed. An installation
+     * already tracked as unattributed therefore kept that label forever,
+     * even once `plugin_artifacts` gained a row naming its source — which is
+     * precisely what happens on upgrade to 1.1.3, and on any re-install of
+     * an identical version (same bytes in, checksum unchanged, so the
+     * "changed" path never runs).
+     *
+     * Only ever an upgrade from Manual — the "we cannot attribute this"
+     * value — to a source recorded for that exact checksum. It cannot
+     * overwrite an already-known source and cannot invent one: the artifact
+     * table is content-addressed, so a row matching this file's checksum
+     * describes literally these bytes, not something merely similar.
+     */
+    private function adoptKnownProvenance(string $existingProvenance, string $sha256): string
+    {
+        if ($existingProvenance !== PluginProvenance::Manual->value) {
+            return $existingProvenance;
+        }
+
+        $artifact = PluginArtifact::query()->where('sha256', $sha256)->first();
+
+        return $artifact instanceof PluginArtifact && $artifact->source !== null
+            ? $artifact->source
+            : $existingProvenance;
     }
 
     private function resolveProvenanceForChange(string $existingProvenance, string $newSha256): string
