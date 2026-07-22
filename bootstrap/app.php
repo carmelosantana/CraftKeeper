@@ -3,7 +3,6 @@
 use App\Config\Exceptions\ConfigConflict;
 use App\Console\Commands\PrunePluginRollbackArtifacts;
 use App\Console\Commands\PruneServerObservationData;
-use App\Console\Commands\SampleServerState;
 use App\Http\Middleware\AssignApiCorrelationId;
 use App\Http\Middleware\ContentSecurityPolicy;
 use App\Http\Middleware\EnsureApiScope;
@@ -205,14 +204,23 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->withSchedule(function (Schedule $schedule): void {
-        // Task 11's ambiguity resolution #1: poll lightweight RCON state
-        // every 15 seconds while reachable. SampleServerState itself
-        // applies a jittered backoff (up to a 60s ceiling) once RCON goes
-        // unreachable, so this cadence is a CEILING on attempt frequency,
-        // not a guarantee every tick calls out over the network.
-        $schedule->command(SampleServerState::class)
-            ->everyFifteenSeconds()
-            ->withoutOverlapping();
+        // Task 11's ambiguity resolution #1 (poll lightweight RCON state
+        // every 15 seconds while reachable) is NOT scheduled here — it
+        // runs as App\Console\Commands\WatchServerState, a long-lived
+        // Supervisor program (docker/supervisor/supervisord.conf).
+        //
+        // It had to move. Laravel runs a scheduled COMMAND event by
+        // shelling out (Illuminate\Console\Scheduling\CommandBuilder ->
+        // Process::fromShellCommandline), so every 15-second tick was a
+        // fresh `php artisan` process. That made connection reuse
+        // impossible, and each RCON connection costs the operator two
+        // INFO lines in their own latest.log — ~11,500 lines/day, 96% of
+        // the entire log on a live Legendary container. Holding one
+        // connection needs one process that outlives one poll; see
+        // WatchServerState's docblock for the full reasoning.
+        //
+        // The 15-second cadence and the jittered backoff are unchanged,
+        // they just live in the poller now.
 
         // Realtime console tailing (ambiguity resolutions #3/#6): a
         // bounded, purely local file read (<=256 KiB/iteration, no

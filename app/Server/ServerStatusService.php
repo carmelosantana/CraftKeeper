@@ -10,8 +10,8 @@ use App\Models\ServerSample;
 /**
  * Aggregates current server health with PER-SOURCE state (Task 11's
  * ambiguity resolution #5). Reads only already-persisted state
- * (App\Models\ServerSample, written by App\Console\Commands\
- * SampleServerState every 15 seconds) — it never itself talks to RCON —
+ * (App\Models\ServerSample, written every 15 seconds by App\Console\
+ * Commands\WatchServerState) — it never itself talks to RCON —
  * and checks the log file's accessibility directly and independently, so
  * neither source's computation can ever be influenced by the other's
  * outcome.
@@ -27,11 +27,16 @@ final class ServerStatusService
     /**
      * A sample older than this is not trusted as representing the
      * server's CURRENT state, even if it was itself a successful sample —
-     * roughly 3x the 15-second poll interval, so a couple of missed ticks
-     * don't immediately flip the UI to "unavailable", but a genuinely
-     * stalled sampler does.
+     * exactly 3x App\Console\Commands\WatchServerState::POLL_INTERVAL_SECONDS,
+     * so a couple of missed ticks don't immediately flip the UI to
+     * "unavailable", but a genuinely stalled poller does.
+     *
+     * Public because that 3:1 ratio is a contract between two classes,
+     * not a private detail: moving the poll cadence without moving this
+     * makes the dashboard either flicker or lie, so a test pins the
+     * relationship between them.
      */
-    private const SAMPLE_FRESHNESS_SECONDS = 45;
+    public const SAMPLE_FRESHNESS_SECONDS = 45;
 
     public function snapshot(): ServerStatusSnapshot
     {
@@ -59,8 +64,8 @@ final class ServerStatusService
 
         if ($sample->player_count === null) {
             // RCON was reachable, but the sampler could not parse a player
-            // count out of the "list" response (App\Console\Commands\
-            // SampleServerState's own "unrecognized response" case) — this
+            // count out of the "list" response (App\Server\ServerSampler's
+            // own "unrecognized response" case) — this
             // is a known-unknown, never reported as a fabricated
             // "available" with a null count.
             return RconStatus::unavailable($sample->error_reason ?? 'RCON connected, but the player list response was unreadable.');

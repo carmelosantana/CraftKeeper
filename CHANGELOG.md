@@ -9,7 +9,38 @@ heading format exact.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The RCON health poll was writing ~11,500 lines a day into your
+  Minecraft server's own `latest.log`.** Minecraft logs two INFO lines for
+  every RCON connection it accepts — not per command — and the poll opened
+  a fresh connection every 15 seconds:
+
+  ```
+  [10:06:30] [RCON Listener #1/INFO]: Thread RCON Client /172.28.0.3 started
+  [10:06:30] [RCON Client /172.28.0.3 #948/INFO]: Thread RCON Client /172.28.0.3 shutting down
+  ```
+
+  On a live server that was 96% of the whole log file (2,088 of 2,170
+  lines), and it pushed real content — plugin enables, world load, player
+  joins — out of the Console page within about 75 seconds of scrollback.
+
+  The poll now runs as one long-lived process holding one RCON connection,
+  so a server that used to accumulate those lines all day accumulates two.
+  Measured against the same server: 6 polls cost 12 log lines before and 2
+  after. The 15-second cadence, the player counts, and the backoff
+  behaviour are all unchanged.
+
+  It could not be fixed in place, because Laravel runs a scheduled command
+  as a fresh process on every tick — there was no process alive long enough
+  to hold a connection. The poll therefore moved out of the scheduler into
+  its own `server:watch` Supervisor program, which the bundled image starts
+  for you. If a held connection dies (most often because the Minecraft
+  server restarted) it is reconnected and retried once, so a restart no
+  longer shows up as a spurious "RCON unreachable".
+
+  `server:sample-state` still exists for taking a single sample on demand,
+  and still backs the "Test connection" button.
 
 ## [1.1.4] - 2026-07-22
 

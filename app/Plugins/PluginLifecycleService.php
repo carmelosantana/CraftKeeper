@@ -214,7 +214,7 @@ final class PluginLifecycleService
      * "Restart required" stays true until a subsequent server start is
      * OBSERVED (Task 15's ambiguity resolution #3), reusing Task 11's
      * server observation data (App\Models\ServerSample, sampled every 15s
-     * while RCON is reachable — App\Console\Commands\SampleServerState)
+     * while RCON is reachable — App\Console\Commands\WatchServerState)
      * rather than inventing a second polling mechanism. No log line or
      * RCON call unambiguously means "the JVM just restarted," so this
      * reads the one signal that DOES exist: RCON going unreachable and

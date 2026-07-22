@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * One RCON state poll (App\Console\Commands\SampleServerState, every 15
- * seconds while reachable — Task 11's ambiguity resolution #1). Bounded
- * history: pruned past 7 days by App\Console\Commands\
- * PruneServerObservationData.
+ * One RCON state poll — written by App\Server\ServerSampler, driven every
+ * 15 seconds while reachable by App\Console\Commands\WatchServerState
+ * (Task 11's ambiguity resolution #1) and on demand by App\Console\
+ * Commands\SampleServerState. Bounded history: pruned past 7 days by
+ * App\Console\Commands\PruneServerObservationData.
  *
  * `player_count`/`player_names` are nullable and NEVER defaulted to a
  * fabricated zero/empty value when `rcon_reachable` is false or the

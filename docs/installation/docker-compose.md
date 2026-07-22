@@ -3,8 +3,8 @@
 CraftKeeper ships as one container image
 (`ghcr.io/carmelosantana/craftkeeper`) built from the `Dockerfile` in
 this repository: PHP 8.4-FPM, Nginx, and Supervisor running one database
-queue worker, `schedule:work`, and Laravel Reverb, all as a non-root
-`craftkeeper` user (uid/gid `1000`). The image never creates, chowns, or
+queue worker, `schedule:work`, the `server:watch` RCON health poll, and
+Laravel Reverb, all as a non-root `craftkeeper` user (uid/gid `1000`). The image never creates, chowns, or
 otherwise touches `/minecraft` — that is entirely your volume, owned
 however your Minecraft server process expects. CraftKeeper also never
 needs `/var/run/docker.sock` or any equivalent — it does not, and will

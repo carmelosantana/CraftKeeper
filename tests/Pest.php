@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\fixtures\rcon\FakeRconTransport;
 use Tests\TestCase;
 
 /*
@@ -71,4 +72,38 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/*
+|--------------------------------------------------------------------------
+| RCON wire-format helpers
+|--------------------------------------------------------------------------
+|
+| Shared by every test that drives a MinecraftRconClient over a
+| Tests\fixtures\rcon\FakeRconTransport. They build the exact byte
+| sequences a real server sends back, so a test can script a whole
+| connection's worth of traffic inline.
+|
+*/
+
+/** One successful auth reply: the auth request id (1), carrying no body. */
+function rconAuthOkBytes(): string
+{
+    return FakeRconTransport::packet(1, 0, '');
+}
+
+/**
+ * One command's COMPLETE reply: the response body, then the empty
+ * terminator packet that tells the client no more fragments are coming.
+ * Concatenate several to script several commands on one connection.
+ */
+function rconCommandReplyBytes(string $body): string
+{
+    return FakeRconTransport::packet(2, 0, $body).FakeRconTransport::packet(3, 0, '');
+}
+
+/** A `list` reply for a server that is up with nobody online. */
+function rconEmptyListReplyBytes(): string
+{
+    return rconCommandReplyBytes('There are 0 of a max of 20 players online:');
 }

@@ -5,15 +5,46 @@ namespace App\Console;
 use App\Console\Exceptions\InvalidRconPacket;
 use App\Console\Exceptions\RconAuthFailed;
 use App\Console\Exceptions\RconConnectionClosed;
+use App\Console\Exceptions\RconException;
 use App\Console\Exceptions\RconResponseTooLarge;
 use App\Console\Exceptions\RconTimeout;
 
 /**
- * A bounded Minecraft (Source) RCON client. Every execute() call is a
- * fresh, short-lived connection: connect -> authenticate -> send the
- * command (plus a trailing empty "terminator" command) -> read every
- * response packet until the terminator's own response comes back -> close.
- * This is the one and only implementation of RconClient.
+ * A bounded Minecraft (Source) RCON client. One execute() call is
+ * connect -> authenticate -> send the command (plus a trailing empty
+ * "terminator" command) -> read every response packet until the
+ * terminator's own response comes back -> close. This is the one and only
+ * implementation of RconClient.
+ *
+ * CONNECTION LIFETIME. By default each execute() is a fresh, short-lived
+ * connection, which is right for the rare, user-issued, audited commands
+ * (App\Operations\Handlers\RconCommandHandler, ServerStopHandler).
+ * Constructed with `persistent: true`, the client instead holds ONE
+ * authenticated connection open across many execute() calls, and only
+ * App\Console\Commands\WatchServerState — the long-running health poll —
+ * asks for that.
+ *
+ * The reason is the OPERATOR'S log, not throughput. Minecraft writes two
+ * INFO lines into latest.log for every RCON connection it ACCEPTS
+ * ("Thread RCON Client /addr started" / "... shutting down") — never one
+ * per command. A connect-per-poll health sampler therefore wrote ~11,500
+ * lines/day into the user's own server log; measured against a live
+ * Legendary (Paper) container it was 96% of the entire file, and it
+ * pushed genuine content out of CraftKeeper's console tail within ~75
+ * seconds. The same container confirms holding the socket is safe: one
+ * connection ran `list` seven times across 90 seconds with no idle
+ * timeout and no drop, costing 2 log lines instead of 14.
+ *
+ * A held connection can still die between commands while it sits idle —
+ * most importantly when the Minecraft server restarts, which CraftKeeper
+ * itself can trigger. The write may even succeed into a local socket
+ * buffer, so the loss only surfaces on the read. execute() therefore
+ * reconnects and retries EXACTLY ONCE when a command fails on a
+ * connection that was opened for an earlier command, and never retries a
+ * command that failed on a connection it just opened (which would double
+ * every attempt against a server that is simply down). A failed execute()
+ * always leaves the client disconnected, so the next call starts clean
+ * rather than latching into a broken state.
  *
  * Wire format (Task 10's ambiguity resolution #2): int32-LE length,
  * int32-LE request id, int32-LE type, a NUL-terminated body, then one
@@ -40,10 +71,12 @@ use App\Console\Exceptions\RconTimeout;
  * misattributed.
  *
  * Every request id is fixed per connection (auth=1, command=2,
- * terminator=3) rather than randomly generated, because a fresh
- * connection is opened for every single execute() call — there is never
- * more than one command in flight per connection, so there is no
- * collision risk, and fixed ids make every test in this suite fully
+ * terminator=3) rather than randomly generated. This stays safe when a
+ * connection is REUSED because execute() is strictly synchronous — it
+ * reads its own command's response through to the terminator before
+ * returning, so there is never more than one command in flight on a
+ * connection regardless of how many commands that connection goes on to
+ * carry. Fixed ids also make every test in this suite fully
  * deterministic.
  *
  * Why a hostile length header can never over-read or hang (see
@@ -59,7 +92,7 @@ use App\Console\Exceptions\RconTimeout;
  * — so it can only ever iterate a bounded number of times (bounded by the
  * number of bytes still needed) before either completing or throwing.
  */
-final class MinecraftRconClient implements RconClient
+final class MinecraftRconClient implements PersistentRconClient
 {
     public const CONNECT_TIMEOUT_SECONDS = 3.0;
 
@@ -97,14 +130,81 @@ final class MinecraftRconClient implements RconClient
 
     private const TERMINATOR_REQUEST_ID = 3;
 
+    /**
+     * True once connect() + authenticate() have both succeeded, and false
+     * again the moment the connection is closed. Only ever true between
+     * execute() calls in persistent mode.
+     */
+    private bool $connected = false;
+
     public function __construct(
         private readonly RconTransport $transport,
         private readonly string $host = '127.0.0.1',
         private readonly int $port = 25575,
         private readonly string $password = '',
+        private readonly bool $persistent = false,
     ) {}
 
     public function execute(RconCommand $command): RconResponse
+    {
+        if ($this->persistent) {
+            return $this->executeOnHeldConnection($command);
+        }
+
+        $this->connect();
+
+        try {
+            $this->authenticate();
+
+            return $this->runCommand($command);
+        } finally {
+            $this->disconnect();
+        }
+    }
+
+    /**
+     * Release the held connection, if any. Safe to call when nothing was
+     * ever connected, and safe to call twice — the long-running poll
+     * calls it on shutdown so a supervisor restart never leaves a socket
+     * (and its two log lines) dangling.
+     */
+    public function disconnect(): void
+    {
+        if (! $this->connected) {
+            return;
+        }
+
+        $this->connected = false;
+        $this->transport->close();
+    }
+
+    private function executeOnHeldConnection(RconCommand $command): RconResponse
+    {
+        // A connection opened for an EARLIER command may have gone away
+        // while it sat idle (a server restart is the common case), and
+        // there is no way to know that without using it. One reconnect,
+        // one retry — see the class docblock.
+        if ($this->connected) {
+            try {
+                return $this->runCommand($command);
+            } catch (RconException) {
+                $this->disconnect();
+            }
+        }
+
+        try {
+            $this->connect();
+            $this->authenticate();
+
+            return $this->runCommand($command);
+        } catch (RconException $e) {
+            $this->disconnect();
+
+            throw $e;
+        }
+    }
+
+    private function connect(): void
     {
         $this->transport->connect(
             $this->host,
@@ -113,16 +213,15 @@ final class MinecraftRconClient implements RconClient
             self::READ_TIMEOUT_SECONDS,
         );
 
-        try {
-            $this->authenticate();
+        $this->connected = true;
+    }
 
-            $this->sendPacket(self::COMMAND_REQUEST_ID, self::TYPE_EXEC, $command->body);
-            $this->sendPacket(self::TERMINATOR_REQUEST_ID, self::TYPE_EXEC, '');
+    private function runCommand(RconCommand $command): RconResponse
+    {
+        $this->sendPacket(self::COMMAND_REQUEST_ID, self::TYPE_EXEC, $command->body);
+        $this->sendPacket(self::TERMINATOR_REQUEST_ID, self::TYPE_EXEC, '');
 
-            return new RconResponse($this->readCommandResponse());
-        } finally {
-            $this->transport->close();
-        }
+        return new RconResponse($this->readCommandResponse());
     }
 
     private function authenticate(): void
