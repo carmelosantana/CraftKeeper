@@ -32,6 +32,11 @@ final class FakeRconTransport implements RconTransport
 
     public int $closeCalls = 0;
 
+    public int $connectCalls = 0;
+
+    /** @var list<string> */
+    private array $subsequentBuffers = [];
+
     private bool $lastReadWasEof = false;
 
     private bool $lastReadWasTimeout = false;
@@ -45,12 +50,29 @@ final class FakeRconTransport implements RconTransport
     private int $cursor = 0;
 
     private function __construct(
-        private readonly string $inbound,
+        private string $inbound,
     ) {}
 
     public static function respondingWith(string $bytes): self
     {
         return new self($bytes);
+    }
+
+    /**
+     * Script one buffer PER CONNECTION: the first connect() serves
+     * $first, and each subsequent connect() swaps in the next buffer and
+     * rewinds the cursor. This is what makes a RECONNECT observably
+     * different from a reused connection — a persistent client that
+     * wrongly reconnects gets fresh bytes (and a fresh auth exchange),
+     * while one that correctly holds the socket keeps reading forward
+     * through the buffer it already has.
+     */
+    public static function respondingAcrossConnectionsWith(string $first, string ...$rest): self
+    {
+        $fake = new self($first);
+        $fake->subsequentBuffers = array_values($rest);
+
+        return $fake;
     }
 
     public static function connectTimesOut(): self
@@ -101,6 +123,15 @@ final class FakeRconTransport implements RconTransport
         if ($this->connectShouldTimeOut) {
             throw new RconTimeout('connect', "Simulated connect timeout to {$host}:{$port}.");
         }
+
+        if ($this->connectCalls > 0 && $this->subsequentBuffers !== []) {
+            $this->inbound = array_shift($this->subsequentBuffers);
+            $this->cursor = 0;
+            $this->lastReadWasEof = false;
+            $this->lastReadWasTimeout = false;
+        }
+
+        $this->connectCalls++;
     }
 
     public function write(string $bytes): void

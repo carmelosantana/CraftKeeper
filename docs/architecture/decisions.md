@@ -1868,7 +1868,7 @@ log line, verbatim.
 
 **`App\Server\ServerStatusService` never calls RCON itself — it only
 ever reads the most recent `App\Models\ServerSample` row, written by the
-independently-scheduled `SampleServerState` command.** This is what makes
+independent `WatchServerState` poller.** This is what makes
 the "RCON down degrades only RCON-dependent data" guarantee structural
 rather than incidental: there is no code path in `ServerStatusService`
 that can block on, retry, or be affected by a live RCON call, because it
@@ -4789,3 +4789,97 @@ lint/format debt made `continue-on-error` rather than fixed; the design
 acceptance gaps listed above needing a human; and the same follow-ups
 Task 20 already recorded (Firefox/WebKit Playwright projects, per-accent
 e2e, AI provider 401/429/timeout distinction) remain open.
+
+## RCON Health Poll — One Long-Lived Connection Instead of One Per Poll
+
+**The problem was in the operator's log, not in CraftKeeper's.** Minecraft
+writes two INFO lines for every RCON connection it *accepts* — never one
+per command:
+
+```
+[10:06:30] [RCON Listener #1/INFO]: Thread RCON Client /172.28.0.3 started
+[10:06:30] [RCON Client /172.28.0.3 #948/INFO]: Thread RCON Client /172.28.0.3 shutting down
+```
+
+`App\Console\MinecraftRconClient` opened a fresh connection per
+`execute()`, and the health poll ran four times a minute, so the poll
+alone wrote ~11,500 lines/day into the user's own `latest.log`. Measured
+on a live Legendary (Paper) container over 2h11m: **2,088 of 2,170 lines
+(96%), 175 KB of 182 KB**, against roughly 750 lines/day of genuine
+content. It also swamped CraftKeeper's own Console page, whose loaded
+tail covered about 75 seconds of wall clock and contained nothing else.
+
+**A scheduled command could never have fixed this.** Laravel runs a
+scheduled *command* event by shelling out — `Illuminate\Console\
+Scheduling\CommandBuilder` builds an `artisan` invocation and
+`Event::run()` hands it to `Process::fromShellCommandline` — so every
+15-second tick was a brand-new PHP process (verified live: `php artisan
+server:sample-state` appearing and exiting once per tick). No singleton,
+no shared memory, and therefore no socket can survive between ticks. The
+poll had to leave the scheduler entirely.
+
+**The RCON server tolerates a held connection — verified, not assumed.**
+Against the live container, one socket ran `list` seven times across 90
+seconds with no idle timeout and no drop, costing 2 log lines instead of
+14. A before/after run of the real production classes
+(`MinecraftRconClient` over `StreamRconTransport`) measured **12 lines
+for 6 commands connection-per-command vs 2 lines for the same 6 commands
+persistent**.
+
+**So the poll became `App\Console\Commands\WatchServerState`**, a
+long-lived Supervisor program alongside `queue:work` and `reverb:start`.
+The 15-second cadence and the jittered backoff are unchanged; only the
+process model moved. `bootstrap/app.php` no longer schedules the sample.
+
+**`persistent` is opt-in, not the new default.** `MinecraftRconClient`
+keeps connection-per-command for the rare, user-issued, audited commands
+(`RconCommandHandler`, `ServerStopHandler`) — those have no connection to
+reuse and must not hold a socket. Only the poller resolves the separate
+`App\Console\PersistentRconClient` binding. The fixed per-connection
+request ids (auth=1, command=2, terminator=3) stay safe under reuse
+because `execute()` is strictly synchronous: it reads its own response
+through to the terminator before returning, so there is never more than
+one command in flight regardless of how many commands a connection
+carries.
+
+**A held connection that dies gets exactly one reconnect-and-retry.** The
+common case is the Minecraft server restarting — which CraftKeeper itself
+can trigger via `ServerStopHandler` — and the write may even succeed into
+a local socket buffer, so the loss only surfaces on the read. Without the
+retry, every server bounce would produce a spurious "RCON unreachable"
+sample, which would be worse than the log noise it replaced. A command
+that fails on a connection that was *just opened* is never retried, since
+that would double every attempt against a server that is simply down.
+Verified against a real socket by killing and restarting the repo's own
+`docker/fake-rcon` server mid-session: the client detected the dead
+connection, closed it, reconnected, and returned a correct response
+without the caller seeing an error.
+
+**`ServerStatusService::SAMPLE_FRESHNESS_SECONDS` became public** because
+its 45s value is exactly 3x `WatchServerState::POLL_INTERVAL_SECONDS` —
+that ratio is a contract between two classes, not a private detail, and a
+test now pins it so moving one without the other fails loudly rather than
+making the dashboard flicker or the poll chatty.
+
+**Failure posture is unchanged and still fails visibly.** A failed poll
+records an unreachable `ServerSample`, applies the backoff, and the loop
+continues; if the process dies, Supervisor restarts it, and in the gap
+`ServerStatusService` already degrades to "unavailable" on sample
+staleness rather than reporting a fabricated zero.
+
+**Filtering the lines out of the console stream was considered and
+rejected** as the primary fix: it hides the symptom from CraftKeeper's UI
+while the operator's `latest.log` keeps growing at the same rate.
+
+**Verification**: full suite 939 passed / 11 skipped / 0 failed; PHPStan
+0 errors; Pint clean. Pest's `--mutate` needs xdebug or pcov and neither
+is installable here without root, so the new tests were mutation-checked
+by hand against 15 targeted mutations of the changed logic (persistence
+disabled, retry removed, dead socket leaked, retry-on-fresh-connection,
+disconnect state not cleared, sleep removed, cadence changed, backoff
+ignored, backoff never reset, fabricated zero, and others). Three
+survived the first pass and each exposed a real gap — a tautological
+interval assertion that compared the constant to itself, no coverage of
+client state after `disconnect()`, and a backoff-reset test whose clock
+jump made it pass either way. Tests were added for all three; the second
+pass killed 15/15.

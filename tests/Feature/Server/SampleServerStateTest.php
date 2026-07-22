@@ -185,6 +185,53 @@ it('resets backoff after a successful sample, so the very next tick attempts RCO
     CarbonImmutable::setTestNow();
 });
 
+it('restarts the backoff from the base delay after a success, not from the old failure count', function () {
+    // The previous test proves the NEXT tick attempts again, but a jump
+    // past the old window would satisfy that even if the failure COUNTER
+    // were never cleared. What the counter actually controls is how hard
+    // the next failure backs off: pinned at 1.0, one failure delays 15s,
+    // while four consecutive failures delay the full 60s ceiling.
+    app()->instance(RetryBackoff::class, new RetryBackoff(fn () => 1.0));
+
+    $start = now();
+    CarbonImmutable::setTestNow($start);
+
+    // Three failures, each waiting out its own window: 15s, then 30s,
+    // then 60s.
+    bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
+    Artisan::call('server:sample-state');
+
+    foreach ([15, 45, 105] as $offset) {
+        CarbonImmutable::setTestNow($start->addSeconds($offset));
+        bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
+        Artisan::call('server:sample-state');
+    }
+
+    expect(ServerSample::query()->count())->toBe(4);
+
+    // Now a success, which must clear the accumulated failure count.
+    CarbonImmutable::setTestNow($start->addSeconds(200));
+    bindFakeRcon(FakeRconTransport::respondingWith(successfulListResponseBytes('There are 0 of a max of 20 players online:')));
+    Artisan::call('server:sample-state');
+    expect(ServerSample::query()->count())->toBe(5);
+
+    // One more failure. With the count reset this is failure #1 -> a 15s
+    // delay; without the reset it would be failure #5 -> the 60s ceiling.
+    CarbonImmutable::setTestNow($start->addSeconds(201));
+    bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
+    Artisan::call('server:sample-state');
+    expect(ServerSample::query()->count())->toBe(6);
+
+    // 16s later: past a base-delay window, nowhere near the ceiling.
+    CarbonImmutable::setTestNow($start->addSeconds(217));
+    bindFakeRcon(FakeRconTransport::respondingWith(FakeRconTransport::packet(-1, 0, '')));
+    Artisan::call('server:sample-state');
+
+    expect(ServerSample::query()->count())->toBe(7);
+
+    CarbonImmutable::setTestNow();
+});
+
 it('never computes a backoff delay beyond the 60-second ceiling regardless of consecutive failures', function () {
     $backoff = new RetryBackoff(fn () => 1.0);
 

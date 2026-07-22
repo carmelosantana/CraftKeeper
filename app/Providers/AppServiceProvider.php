@@ -7,6 +7,7 @@ use App\Catalog\Sources\HangarSource;
 use App\Catalog\Sources\ModrinthSource;
 use App\Catalog\UnifiedCatalogService;
 use App\Console\MinecraftRconClient;
+use App\Console\PersistentRconClient;
 use App\Console\RconClient;
 use App\Console\StreamRconTransport;
 use App\Filesystem\LocalMinecraftFilesystem;
@@ -87,6 +88,29 @@ class AppServiceProvider extends ServiceProvider
             Setting::get('rcon.host') ?? '127.0.0.1',
             (int) (Setting::get('rcon.port') ?? 25575),
             Secret::get('rcon.password') ?? '',
+        ));
+
+        // The SAME client, configured to hold one authenticated
+        // connection open across many commands. Only
+        // App\Console\Commands\WatchServerState resolves this: it is the
+        // one caller that runs commands on a loop, and every connection
+        // it avoids opening is two fewer INFO lines in the operator's own
+        // latest.log (see App\Console\MinecraftRconClient's docblock for
+        // the measurements). Bound separately rather than swapping the
+        // binding above so the rare, user-issued, audited commands keep
+        // the connection-per-command default.
+        //
+        // Deliberately NOT a singleton: `bind` still hands the one
+        // resolving command a single instance for its whole lifetime
+        // (it resolves once, in handle()), while keeping the host/port/
+        // password read from the encrypted Setting/Secret store at
+        // resolution time rather than frozen at first boot.
+        $this->app->bind(PersistentRconClient::class, fn (): PersistentRconClient => new MinecraftRconClient(
+            new StreamRconTransport,
+            Setting::get('rcon.host') ?? '127.0.0.1',
+            (int) (Setting::get('rcon.port') ?? 25575),
+            Secret::get('rcon.password') ?? '',
+            persistent: true,
         ));
 
         // Every App\Catalog\PluginSource adapter, tagged so

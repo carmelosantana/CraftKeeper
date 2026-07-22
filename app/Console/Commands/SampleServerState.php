@@ -2,35 +2,28 @@
 
 namespace App\Console\Commands;
 
-use App\Console\Exceptions\RconException;
 use App\Console\RconClient;
-use App\Console\RconCommand;
 use App\Models\ServerSample;
-use App\Server\RetryBackoff;
+use App\Server\ServerSampler;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
 
 /**
- * Polls lightweight RCON state (the SAFE `list` command — Task 10's
- * App\Console\CommandPolicy) on a schedule (every 15 seconds while
- * reachable, wired via ->withSchedule() in bootstrap/app.php — Task 11's
- * ambiguity resolution #1) and stores one bounded App\Models\ServerSample
- * per actual attempt.
+ * ONE on-demand RCON health sample, for an operator running it by hand
+ * (or a support bundle capturing current state). All of the actual work —
+ * the SAFE `list` command, parsing, the bounded App\Models\ServerSample
+ * row, and the jittered backoff — lives in App\Server\ServerSampler, so
+ * this and the continuous poller produce byte-identical rows.
  *
- * This talks to RconClient DIRECTLY — not through App\Operations\
- * OperationService/App\Console\RconCommandService — because a background
- * health poll is not a user-issued, audited command; it never proposes,
- * approves, or executes an Operation. This mirrors the exact pattern
- * App\Operations\Handlers\ServerStopHandler's own docblock anticipates
- * ("the health-poll loop ... Task 11's surface").
- *
- * Backoff (App\Server\RetryBackoff): every 15-second tick is a CEILING on
- * attempt frequency, not a guarantee every tick calls out over the
- * network. While backing off, this command is a cheap Cache::get() no-op
- * — it does not attempt RCON again, and does not insert a new
- * ServerSample row, until the computed delay has elapsed. A successful
- * sample immediately resets the backoff state, so recovery is detected on
- * the very next tick.
+ * This is NOT what keeps App\Server\ServerStatusService supplied in a
+ * running install; App\Console\Commands\WatchServerState is. This command
+ * used to be scheduled every 15 seconds, but a scheduled command event is
+ * a fresh `php artisan` process per tick, so it could never reuse an RCON
+ * connection — and each connection costs the operator two INFO lines in
+ * their own latest.log. See WatchServerState's docblock for the full
+ * reasoning and the measurements. It is kept as a manual command because
+ * "take one sample right now" is genuinely useful when diagnosing an
+ * install, and it uses the ordinary connection-per-command RconClient
+ * because a single sample has no connection to reuse.
  *
  * Dependencies are resolved via HANDLE-METHOD injection, deliberately NOT
  * the constructor: Laravel's `app/Console/Commands` auto-discovery
@@ -54,85 +47,27 @@ class SampleServerState extends Command
     /**
      * @var string
      */
-    protected $description = 'Poll lightweight RCON state (`list`) and store a bounded ServerSample, backing off (with jitter, up to a 60s ceiling) while RCON is unreachable.';
+    protected $description = 'Take one RCON health sample (`list`) now and store a bounded ServerSample, respecting the shared backoff window.';
 
-    private const CACHE_KEY_FAILURES = 'craftkeeper.server.rcon_sample.consecutive_failures';
-
-    private const CACHE_KEY_NEXT_ATTEMPT_AT = 'craftkeeper.server.rcon_sample.next_attempt_at';
-
-    public function handle(RconClient $client, RetryBackoff $backoff): int
+    public function handle(RconClient $client, ServerSampler $sampler): int
     {
-        $now = now();
+        $sample = $sampler->sample($client);
 
-        /** @var string|null $nextAttemptAt */
-        $nextAttemptAt = Cache::get(self::CACHE_KEY_NEXT_ATTEMPT_AT);
-
-        if ($nextAttemptAt !== null && $now->lt($nextAttemptAt)) {
-            $this->info("Skipping this tick: backing off until {$nextAttemptAt}.");
+        if (! $sample instanceof ServerSample) {
+            $this->info('Skipping this sample: still within the RCON backoff window.');
 
             return self::SUCCESS;
         }
 
-        try {
-            $response = $client->execute(RconCommand::from('list'));
-            [$count, $names] = $this->parseListResponse($response->body);
-
-            ServerSample::query()->create([
-                'sampled_at' => $now,
-                'rcon_reachable' => true,
-                'player_count' => $count,
-                'player_names' => $names,
-                'error_reason' => $count === null ? 'The server returned an unrecognized response to "list".' : null,
-            ]);
-
-            Cache::forget(self::CACHE_KEY_FAILURES);
-            Cache::forget(self::CACHE_KEY_NEXT_ATTEMPT_AT);
-
+        if ($sample->rcon_reachable) {
             $this->info('RCON sample recorded.');
-
-            return self::SUCCESS;
-        } catch (RconException $e) {
-            $failures = ((int) Cache::get(self::CACHE_KEY_FAILURES, 0)) + 1;
-            Cache::put(self::CACHE_KEY_FAILURES, $failures);
-
-            $delaySeconds = $backoff->nextDelaySeconds($failures);
-            Cache::put(self::CACHE_KEY_NEXT_ATTEMPT_AT, $now->clone()->addSeconds($delaySeconds)->toIso8601String());
-
-            ServerSample::query()->create([
-                'sampled_at' => $now,
-                'rcon_reachable' => false,
-                'player_count' => null,
-                'player_names' => null,
-                'error_reason' => $e->getMessage(),
-            ]);
-
-            $this->warn("RCON unreachable: {$e->getMessage()}");
-
-            // A scheduled health poll degrading is expected, routine
-            // operation, not a command failure — never throws, never
-            // returns a non-zero exit that would spam scheduler logs.
-            return self::SUCCESS;
-        }
-    }
-
-    /**
-     * Parses the vanilla/Paper `list` response, e.g. "There are 2 of a
-     * max of 20 players online: Alice, Bob" (or "...online:" with none).
-     * Returns [null, null] — never a fabricated 0 — when the response
-     * doesn't match the expected shape at all.
-     *
-     * @return array{0: int|null, 1: list<string>|null}
-     */
-    private function parseListResponse(string $body): array
-    {
-        if (preg_match('/^There are (\d+) of a max(?:imum)? of \d+ players online:?\s*(.*)$/i', trim($body), $matches) !== 1) {
-            return [null, null];
+        } else {
+            $this->warn("RCON unreachable: {$sample->error_reason}");
         }
 
-        $count = (int) $matches[1];
-        $namesPart = trim($matches[2]);
-        $names = $namesPart === '' ? [] : array_map('trim', explode(',', $namesPart));
-
-        return [$count, $names];
+        // A health poll degrading is expected, routine operation, not a
+        // command failure — never returns a non-zero exit that would spam
+        // scheduler/supervisor logs.
+        return self::SUCCESS;
     }
 }

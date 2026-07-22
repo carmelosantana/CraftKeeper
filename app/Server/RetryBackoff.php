@@ -3,9 +3,9 @@
 namespace App\Server;
 
 /**
- * Jittered exponential backoff for App\Console\Commands\SampleServerState
- * (Task 11's ambiguity resolution #1: "retry backoff on failure has
- * jitter and a 60-second ceiling"). Implements the standard "full jitter"
+ * Jittered exponential backoff for App\Server\ServerSampler (Task 11's
+ * ambiguity resolution #1: "retry backoff on failure has jitter and a
+ * 60-second ceiling"). Implements the standard "full jitter"
  * strategy (delay = random(0, min(ceiling, base * 2^(failures-1)))) —
  * simple, well-known, and avoids every consecutive-failure retry landing
  * on exactly the same cadence.
