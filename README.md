@@ -8,6 +8,49 @@ AI, REST API, and MCP management experience. It manages exactly one
 Minecraft server through a mounted `/minecraft` directory and RCON, and
 never requires Docker socket access.
 
+## Screenshots
+
+Taken against a live Paper 26.1.2 server running under Legendary
+(Geyser + Floodgate), with real plugins installed through CraftKeeper.
+
+### Overview
+
+Server health, recent operations, and player activity. Values CraftKeeper
+cannot actually determine are reported as unknown rather than guessed —
+resource metrics aren't collected in this version, and the panel says so.
+
+![CraftKeeper's Overview page](docs/images/overview.png)
+
+### Console
+
+Live server output, predefined safe actions, and an elevated-command
+approval flow. The command history records every command and its outcome.
+
+![CraftKeeper's Console page](docs/images/console.png)
+
+### Plugins
+
+Installed plugins with the provenance of each jar — where it actually came
+from, resolved by content hash rather than filename.
+
+![CraftKeeper's Plugins page](docs/images/plugins.png)
+
+### Discover
+
+Search Modrinth, Hangar, and the
+[plugin catalog](https://github.com/carmelosantana/minecraft-plugin-catalog)
+from one place, and install with a click.
+
+![CraftKeeper's plugin discovery page](docs/images/discover.png)
+
+### Configurations
+
+Every configuration file on the mounted server, grouped by owner.
+Recognized files get guided editing; anything else is editable as source.
+Changes that need a restart to take effect say so.
+
+![CraftKeeper's Configurations page](docs/images/configurations.png)
+
 ## Quickstart (Docker Compose)
 
 Requires Docker and Compose v2, and an existing named volume (or bind
@@ -31,9 +74,10 @@ a Paper server with Bedrock crossplay — both containers sharing one volume:
 curl -O https://raw.githubusercontent.com/carmelosantana/craftkeeper/main/compose.legendary.yml
 ```
 
-That pairing needs two one-time fixes (a supplementary group and one
-`chmod`) or CraftKeeper will read your configuration but fail to save
-changes. Follow
+Since 1.1.0 that pairing needs no volume-ownership workarounds — the
+entrypoint reads the shared volume's owning group at startup and adapts.
+One manual step remains, because it belongs to the Minecraft server rather
+than to CraftKeeper: enable RCON in `server.properties`. Follow
 [`docs/installation/legendary-minecraft.md`](docs/installation/legendary-minecraft.md)
 rather than starting it blind.
 
