@@ -11,6 +11,84 @@ heading format exact.
 
 Nothing yet.
 
+## [1.1.1] - 2026-07-22
+
+The application shell was displaying invented server and account data on
+every page of every install. It also fixes the release scan gate, which has
+now withheld `:latest` for three consecutive releases.
+
+### Fixed
+
+- **The sidebar reported a server that does not exist.** Every page showed a
+  server called "Survival" at "mc.example.net" running "Paper 1.21.4", with
+  a green Online indicator and "3 / 40 online" — on an install where nobody
+  had ever logged in, against a server whose `max-players` is 20.
+
+  `resources/js/layouts/AppShell.tsx` carried those as component defaults,
+  left over from the design-system mock it was built against, and not one of
+  its 25 call sites ever passed a real value. Nothing was wired; the
+  placeholder simply *was* the product. Real values now arrive as an Inertia
+  shared prop, so no page can render the shell without them, and every field
+  is nullable with null meaning **unknown**:
+
+  - The player count shows "Players unknown" when RCON is unavailable —
+    never a fabricated 0, matching the guarantee `App\Server\RconStatus`
+    already made and this component was quietly breaking.
+  - Status is `unknown`, not `online`, when RCON cannot be reached:
+    CraftKeeper cannot distinguish "the server is down" from "I cannot reach
+    it", so it claims neither. The indicator dot follows the real state
+    instead of being painted green unconditionally.
+  - `max-players` is read from `server.properties`. When that is unreadable
+    the online count is shown alone rather than against an invented
+    denominator — Minecraft's own default of 20 would be indistinguishable
+    to an operator from a value actually read from their file.
+  - The address line is gone. CraftKeeper manages a filesystem and an RCON
+    port; it has no way to know the hostname players connect on.
+
+- **The account menu claimed two-factor authentication was enabled**
+  whether or not it was. This is the same bug as above and the reason it is
+  worth its own entry: an operator checking whether they had set up TOTP was
+  told "TOTP on" by a hard-coded placeholder. It now reflects the account.
+
+- **The account menu could not sign you out.** It offered a permanently
+  disabled item reading "Sign out (available once sign-in ships)" — written
+  before authentication existed and never revisited, so the shell's own menu
+  had no way out long after sign-in shipped in 1.0.0.
+
+- **The release vulnerability gate, on the third attempt.** 1.0.1 fixed how
+  the ignore file was loaded; 1.1.0 fixed the loader and still failed,
+  because the file enumerated four specific `linux-libc-dev` CVE IDs and
+  Debian had since published a batch of new ones — seven of them HIGH,
+  against the same package and the same version. An enumerated list of
+  kernel CVEs is stale the moment Debian publishes again.
+
+  Replaced with a Rego policy keyed on the package name (`.trivyignore.rego`),
+  which cannot go stale that way. Kernel headers ship in the upstream
+  `php:8.4-fpm-bookworm` base image and a container does not run its own
+  kernel, so these are structurally inapplicable. Everything else still
+  blocks: a CRITICAL/HIGH with a fix available in any other package fails the
+  job and withholds the moving tags.
+
+  Verified against the real published v1.1.0 image before committing — the
+  exact command CI runs, and through the environment variable CI actually
+  uses rather than the equivalent CLI flag: exit 1 without the policy, exit 0
+  with it. Both earlier attempts shipped broken because the mechanism was
+  read and assumed rather than run.
+
+### Security
+
+- `guzzlehttp/guzzle` 7.15.0 → 7.15.1, clearing three MEDIUM advisories
+  (GHSA-f283-ghqc-fg79, GHSA-h95v-h523-3mw8, GHSA-wm3w-8rrp-j577).
+
+### Added
+
+- Tests pinning all of the above, each verified by mutation rather than
+  assumed: the shared prop's honesty (`tests/Feature/ApplicationShellPropTest.php`),
+  and — because the placeholder lived in the compiled JS bundle where no
+  server-side assertion could ever see it, which is precisely why every
+  suite stayed green while every install displayed it — the rendered shell
+  and a working sign-out in `tests/e2e/server-operations.spec.ts`.
+
 ## [1.1.0] - 2026-07-21
 
 Realtime streaming now works in the published image — it previously could

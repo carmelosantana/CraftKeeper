@@ -1,4 +1,4 @@
-import { Link, router } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { RestartRequired } from '@/components/craftkeeper/RestartRequired';
@@ -26,6 +26,7 @@ import { CkThemeProvider, useCkTheme } from '@/hooks/use-ck-theme';
 import type { CkAccentName, CkThemeName } from '@/hooks/use-ck-theme';
 import { useCurrentUrl } from '@/hooks/use-current-url';
 import type { IsCurrentUrlFn } from '@/hooks/use-current-url';
+import { logout } from '@/routes';
 
 /**
  * `Design/handoff/pages.json` → `primaryNavigation`. This is the single
@@ -58,30 +59,57 @@ const DEFAULT_NAVIGATION: AppShellNavItem[] = primaryNavigation.map(
     (label) => ({ label, href: `/${label.toLowerCase()}` }),
 );
 
+/**
+ * Everything here is nullable, and null means UNKNOWN.
+ *
+ * This file used to carry a DEFAULT_SERVER of "Survival" / "mc.example.net"
+ * / "Paper 1.21.4" / status online / 3 of 40 players, and a DEFAULT_USER of
+ * "admin" with TOTP on — a design-system mock that became the production
+ * default because not one of the 25 `<AppShell>` call sites ever passed
+ * anything. Every install rendered all of it, on every page. The real
+ * values now arrive as an Inertia shared prop (App\Http\Middleware\
+ * HandleInertiaRequests::shell), which no page can forget to pass.
+ *
+ * No field falls back to a plausible-looking value. Minecraft's own default
+ * max-players is 20, and using it would be indistinguishable to an operator
+ * from having actually read their server.properties.
+ */
 export interface AppShellServerIdentity {
-    name: string;
-    address: string;
-    version: string;
+    name: string | null;
+    version: string | null;
     status: StatusBadgeStatus;
-    playersOnline: number;
-    playersMax: number;
+    playersOnline: number | null;
+    playersMax: number | null;
+    /** Why the player count is unknown, when it is — surfaced as a title
+     * so the absence is explained rather than merely blank. */
+    playersReason?: string | null;
 }
-
-const DEFAULT_SERVER: AppShellServerIdentity = {
-    name: 'Survival',
-    address: 'mc.example.net',
-    version: 'Paper 1.21.4',
-    status: 'online',
-    playersOnline: 3,
-    playersMax: 40,
-};
 
 export interface AppShellUser {
     name: string;
     totpEnabled: boolean;
 }
 
-const DEFAULT_USER: AppShellUser = { name: 'admin', totpEnabled: true };
+/** Shape of the `shell` shared prop. Absent for guests. */
+interface ShellSharedProps {
+    shell?: {
+        server: AppShellServerIdentity;
+        user: AppShellUser;
+    } | null;
+    /** Inertia's own `PageProps` constraint — other shared props exist
+     * (auth, name, sidebarOpen); this type only narrows the one read here. */
+    [key: string]: unknown;
+}
+
+/** Rendered when CraftKeeper genuinely does not know a value. */
+const UNKNOWN_SERVER: AppShellServerIdentity = {
+    name: null,
+    version: null,
+    status: 'unknown',
+    playersOnline: null,
+    playersMax: null,
+    playersReason: null,
+};
 
 export interface AppShellProps {
     children: ReactNode;
@@ -225,7 +253,7 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
                     className="min-w-0 flex-1 truncate text-[13px] font-bold"
                     style={{ color: 'var(--ck-text)' }}
                 >
-                    {server.name}
+                    {server.name ?? 'Minecraft server'}
                 </span>
                 {/* Status must never rely on color alone: pair the same
                     per-status shape glyph StatusBadge uses elsewhere
@@ -257,11 +285,21 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
                 // AA here.
                 style={{ color: 'var(--ck-text-2)' }}
             >
-                {server.address} · {server.version}
+                {/* No address line: CraftKeeper has no way to know the
+                    hostname players connect on — it manages a filesystem
+                    and an RCON port, neither of which is the public
+                    address. The old mock printed "mc.example.net" here. */}
+                {server.version ?? 'Version unknown'}
             </div>
             <div
                 className="mt-[9px] flex items-center gap-[6px] text-[11px] font-semibold"
                 style={{ color: 'var(--ck-text-2)' }}
+                data-test="shell-player-count"
+                title={
+                    server.playersOnline === null
+                        ? (server.playersReason ?? undefined)
+                        : undefined
+                }
             >
                 <span
                     aria-hidden="true"
@@ -269,10 +307,24 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
                         width: 6,
                         height: 6,
                         borderRadius: 1,
-                        backgroundColor: 'var(--ck-success)',
+                        // Follows the real state. The old mock painted this
+                        // --ck-success unconditionally, so a server nobody
+                        // could reach still showed a green dot.
+                        backgroundColor:
+                            server.playersOnline === null
+                                ? 'var(--ck-text-3)'
+                                : 'var(--ck-success)',
                     }}
                 />
-                {server.playersOnline} / {server.playersMax} online
+                {server.playersOnline === null
+                    ? 'Players unknown'
+                    : server.playersMax === null
+                      ? /* max-players is only knowable from
+                           server.properties; when that is unreadable the
+                           count still is, so show it alone rather than
+                           inventing a denominator. */
+                        `${server.playersOnline} online`
+                      : `${server.playersOnline} / ${server.playersMax} online`}
             </div>
         </div>
     );
@@ -281,10 +333,18 @@ function ServerIdentityCard({ server }: { server: AppShellServerIdentity }) {
 function AppShellChrome({
     children,
     navigation = DEFAULT_NAVIGATION,
-    server = DEFAULT_SERVER,
-    user = DEFAULT_USER,
+    server: serverProp,
+    user: userProp,
     pendingRestart = false,
 }: AppShellProps) {
+    // Real values come from the shared prop, so no page can render the
+    // shell without them. The explicit props remain for the one legitimate
+    // use — resources/js/pages/DesignSystem.tsx showing the component with
+    // sample data — which is where a mock belongs.
+    const { shell } = usePage<ShellSharedProps>().props;
+    const server = serverProp ?? shell?.server ?? UNKNOWN_SERVER;
+    const user = userProp ?? shell?.user ?? null;
+
     const { theme, accent, setTheme } = useCkTheme();
     const { isCurrentUrl } = useCurrentUrl();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -646,12 +706,22 @@ function BrandMark() {
     );
 }
 
-function AdminMenu({ user }: { user: AppShellUser }) {
+function AdminMenu({ user }: { user: AppShellUser | null }) {
+    // Null only when the shared prop is absent, which means no
+    // authenticated user — the shell is not rendered for guests, so this
+    // is a defensive branch rather than a state an operator reaches. It
+    // shows nothing rather than the old "admin / TOTP on" placeholder,
+    // which asserted a two-factor state it had never checked.
+    if (user === null) {
+        return null;
+    }
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
+                    data-test="shell-account-menu"
                     className="flex items-center gap-[10px] border-t px-3 py-3 text-left"
                     style={{ borderColor: 'var(--ck-border)' }}
                 >
@@ -687,8 +757,26 @@ function AdminMenu({ user }: { user: AppShellUser }) {
                 >
                     Design system
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                    Sign out (available once sign-in ships)
+                {/* Was a DISABLED item reading "Sign out (available once
+                    sign-in ships)" — written before authentication existed
+                    and never revisited, so the operator's own account menu
+                    offered no way out long after sign-in shipped. Uses the
+                    same Fortify logout route as
+                    resources/js/components/user-menu-content.tsx. */}
+                <DropdownMenuItem asChild>
+                    <Link
+                        className="block w-full cursor-pointer"
+                        href={logout()}
+                        as="button"
+                        // Drops Inertia's cached page state on the way out,
+                        // matching user-menu-content.tsx — otherwise a
+                        // subsequent sign-in can be served a page rendered
+                        // for the previous session.
+                        onClick={() => router.flushAll()}
+                        data-test="shell-logout-button"
+                    >
+                        Sign out
+                    </Link>
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

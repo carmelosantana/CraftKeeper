@@ -266,29 +266,40 @@ jobs:
       # a failure mean something actionable: "a fix exists and we have not
       # taken it." That took 209 findings down to 4.
       #
-      # Those last 4 are linux-libc-dev (kernel headers, inapplicable to a
-      # container) and are listed individually, with expiry dates, in
-      # .trivyignore.yaml. See that file for the full rationale.
+      # The remainder are linux-libc-dev (kernel headers, inapplicable to a
+      # container), suppressed BY PACKAGE in .trivyignore.rego. See that
+      # file for the full rationale.
       #
       # The scan still runs at full breadth — every severity, including
       # everything ignored here, is uploaded to the Security tab by the next
       # step. Only the *blocking* set is narrowed to what we can act on.
-      # TRIVY_IGNOREFILE is set through `env:` rather than the action's
-      # `trivyignores:` input. That input concatenates the files it is given
-      # into a single PLAIN-TEXT .trivyignore, where each line is expected to
-      # be a bare CVE ID. Handing it a YAML file does not error — the YAML is
-      # simply parsed as a list of CVE-ID-shaped lines, matches nothing, and
-      # every entry is silently ignored. v1.0.1 failed this gate for exactly
-      # that reason, with the same 4 findings the file was meant to cover.
       #
-      # Trivy's own TRIVY_IGNOREFILE variable takes the path directly and
-      # applies the real YAML parser, which is what makes the `expiredAt`
-      # dates in .trivyignore.yaml meaningful. Verified against the published
-      # v1.0.1 image: exit 0 with this set, exit 1 without it.
+      # TWO EARLIER ATTEMPTS AT THIS FAILED, both silently:
+      #
+      #   1. v1.0.0/v1.0.1 passed .trivyignore.yaml through the action's
+      #      `trivyignores:` input. That input concatenates what it is given
+      #      into a single PLAIN-TEXT .trivyignore whose lines must be bare
+      #      CVE IDs. Handed YAML it does not error — it parses the YAML as
+      #      CVE-ID-shaped lines, matches nothing, and drops every entry.
+      #
+      #   2. v1.1.0 fixed that with TRIVY_IGNOREFILE (which does apply the
+      #      real YAML parser), and still failed — because the file listed
+      #      four specific kernel CVE IDs. Debian ships kernel security
+      #      batches continuously, so by then SEVEN NEW HIGH advisories
+      #      existed against the very same package and version, none of them
+      #      on the list. An enumerated list of kernel CVEs is stale the
+      #      moment Debian publishes again.
+      #
+      # Hence a Rego policy keyed on the PACKAGE NAME, which cannot go stale
+      # that way. Verified against the real published v1.1.0 image before
+      # being committed — the same command this step runs, exit 1 without the
+      # policy (7 HIGH, all linux-libc-dev) and exit 0 with it — rather than
+      # by reading the file and assuming, which is what let both attempts
+      # above ship broken.
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
-          TRIVY_IGNOREFILE: ${{ github.workspace }}/.trivyignore.yaml
+          TRIVY_IGNORE_POLICY: ${{ github.workspace }}/.trivyignore.rego
         with:
           image-ref: ${{ needs.build-and-push.outputs.image_ref }}
           format: sarif

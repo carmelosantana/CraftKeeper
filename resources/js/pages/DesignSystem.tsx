@@ -879,7 +879,22 @@ export default function DesignSystem() {
     return (
         <>
             <Head title="Design system" />
-            <AppShell pendingRestart>
+            {/* Explicit sample data: this page exists to SHOW the shell,
+                so a mock is correct here — and this is now the only place
+                one lives. AppShell itself no longer carries defaults; see
+                its docblock for the bug that caused. */}
+            <AppShell
+                pendingRestart
+                server={{
+                    name: 'Survival',
+                    version: 'Paper 1.21.4',
+                    status: 'online',
+                    playersOnline: 3,
+                    playersMax: 40,
+                    playersReason: null,
+                }}
+                user={{ name: 'admin', totpEnabled: true }}
+            >
                 <DesignSystemContent />
             </AppShell>
         </>

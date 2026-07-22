@@ -328,6 +328,34 @@ test.describe.serial('server operations', () => {
 
     /*
     |----------------------------------------------------------------------
+    | The application shell reports real state, not a placeholder.
+    |----------------------------------------------------------------------
+    */
+
+    test('the shell reports real server state, never the design-system mock', async () => {
+        await page.goto('/overview');
+
+        const shell = page.locator('[data-ck-app-shell], body');
+
+        // Until 1.1.1 AppShell.tsx carried DEFAULT_SERVER as a component
+        // default and nothing ever overrode it, so every page of every
+        // install rendered this. It could only ever be caught here: the
+        // strings were compiled into the JS bundle, so no server-side
+        // assertion on the HTML could see them.
+        for (const mock of ['mc.example.net', 'Paper 1.21.4', 'Survival', '3 / 40']) {
+            await expect(shell).not.toContainText(mock);
+        }
+
+        // RCON is deterministically unavailable across this suite (no
+        // sampler runs), so the honest answer is that the count is unknown
+        // — NOT a fabricated 0, and not a stale number.
+        await expect(page.getByTestId('shell-player-count')).toContainText(
+            'Players unknown',
+        );
+    });
+
+    /*
+    |----------------------------------------------------------------------
     | Websocket loss: a reconnect state is shown, and it never clears
     | typed-but-unsent input.
     |----------------------------------------------------------------------
@@ -363,5 +391,36 @@ test.describe.serial('server operations', () => {
         await expect(input).toHaveValue('this command is still being typed');
 
         await severed.close();
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | The account menu can actually sign out.
+    |----------------------------------------------------------------------
+    */
+
+    test('the account menu signs the operator out', async ({ browser }) => {
+        // Its OWN context, deliberately: signing out clears the session
+        // cookie, and this file's other tests share one signed-in context.
+        // Kept last in the file so the extra login cannot contribute to
+        // Fortify's per-minute throttle during the tests above.
+        const context = await browser.newContext();
+        const fresh = await context.newPage();
+        await ensureLoggedInAdmin(fresh);
+
+        await fresh.goto('/overview');
+        await fresh.getByTestId('shell-account-menu').click();
+
+        // Until 1.1.1 this was a DISABLED item reading "Sign out (available
+        // once sign-in ships)" — so the shell's own account menu offered no
+        // way out at all, long after sign-in shipped.
+        const signOut = fresh.getByTestId('shell-logout-button');
+        await expect(signOut).toBeVisible();
+        await signOut.click();
+
+        await fresh.waitForURL('**/login');
+        await expect(fresh.locator('#email')).toBeVisible();
+
+        await context.close();
     });
 });
