@@ -8,7 +8,7 @@
 # build needs a fully bootable PHP application (composer install already
 # run) alongside Node, not just Node on its own.
 #################################################################
-FROM php:8.4-cli-bookworm AS build
+FROM php:8.5-cli-bookworm AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
@@ -65,7 +65,7 @@ RUN npm ci && npm run build
 #################################################################
 # Stage 2: runtime image — PHP-FPM + Nginx + Supervisor, non-root
 #################################################################
-FROM php:8.4-fpm-bookworm AS runtime
+FROM php:8.5-fpm-bookworm AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
