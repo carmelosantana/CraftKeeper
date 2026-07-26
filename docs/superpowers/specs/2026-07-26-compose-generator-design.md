@@ -94,8 +94,10 @@ The tool knows exactly four services. Their defaults mirror the canonical
   `pull_policy: always`, `restart: "no"`, volume `minecraft:/minecraft`.
 - Enabling it also rewires `minecraft.depends_on` (above).
 
-### filebrowser (optional toggle)
+### filebrowser (optional toggle, default OFF)
 
+- Defaults to disabled — the least essential of the four services. When the
+  toggle is off, the service and its two volumes are omitted entirely.
 - `image: filebrowser/filebrowser:latest`, `restart: unless-stopped`,
   port `8081:80`, volumes `minecraft:/srv/minecraft`, `filebrowser_config`,
   `filebrowser_database`, env `PUID`/`PGID`/`TZ`, and the `--config`/`--database`
