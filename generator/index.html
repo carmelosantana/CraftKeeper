@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CraftKeeper — Compose Generator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>CraftKeeper Compose Generator</h1>
+    <p>Build a ready-to-run Docker Compose stack. Nothing is uploaded — everything happens in your browser.</p>
+  </header>
+
+  <main>
+    <section class="form" aria-label="Configuration">
+      <label>Panel URL (APP_URL)
+        <input id="domain" type="text" />
+      </label>
+      <label>Timezone
+        <input id="timezone" type="text" />
+      </label>
+      <label>Server memory (MB)
+        <input id="memory" type="number" min="1024" step="512" />
+      </label>
+
+      <fieldset>
+        <legend>Optional services</legend>
+        <label class="check"><input id="pluginUpdater" type="checkbox" /> Plugin updater</label>
+        <label class="check"><input id="fileBrowser" type="checkbox" /> File Browser</label>
+      </fieldset>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+
+        <label class="check"><input id="publishCraftkeeperPort" type="checkbox" /> Publish panel port to the host</label>
+        <label>Panel host port
+          <input id="craftkeeperPort" type="number" />
+        </label>
+        <label>TRUSTED_PROXIES (blank to omit)
+          <input id="trustedProxies" type="text" placeholder="*" />
+        </label>
+        <label>TRUSTED_HOSTS (blank to omit)
+          <input id="trustedHosts" type="text" placeholder="panel.example.com" />
+        </label>
+        <label class="check"><input id="realtime" type="checkbox" /> Enable realtime console (Reverb)</label>
+
+        <label>Minecraft Java host port
+          <input id="javaPort" type="number" />
+        </label>
+        <label>Minecraft Bedrock host port
+          <input id="bedrockPort" type="number" />
+        </label>
+        <label>Minecraft version pin (blank = latest)
+          <input id="minecraftVersion" type="text" placeholder="1.21.7" />
+        </label>
+        <label class="check"><input id="resourceLimits" type="checkbox" /> Set CPU/memory limits</label>
+        <label>CPUs
+          <input id="cpus" type="number" />
+        </label>
+        <label>Memory limit
+          <input id="memoryLimit" type="text" placeholder="16g" />
+        </label>
+
+        <label>File Browser host port
+          <input id="fileBrowserPort" type="number" />
+        </label>
+        <label>File Browser PUID
+          <input id="puid" type="number" />
+        </label>
+        <label>File Browser PGID
+          <input id="pgid" type="number" />
+        </label>
+      </details>
+
+      <div class="actions">
+        <button id="regenerate" type="button">Regenerate secrets</button>
+        <button id="download" type="button" class="primary">Download bundle (.zip)</button>
+      </div>
+    </section>
+
+    <section class="preview" aria-label="Preview">
+      <nav class="tabs">
+        <button data-tab="compose" class="active" type="button">compose.yml</button>
+        <button data-tab="env" type="button">.env</button>
+        <button data-tab="readme" type="button">README.md</button>
+        <button data-tab="steps" type="button">Next steps</button>
+      </nav>
+      <div id="panel-compose" data-panel><button data-copy="compose" class="copy" type="button">Copy</button><pre id="preview-compose"></pre></div>
+      <div id="panel-env" data-panel hidden><button data-copy="env" class="copy" type="button">Copy</button><pre id="preview-env"></pre></div>
+      <div id="panel-readme" data-panel hidden><button data-copy="readme" class="copy" type="button">Copy</button><pre id="preview-readme"></pre></div>
+      <div id="panel-steps" data-panel hidden><button data-copy="steps" class="copy" type="button">Copy</button><pre id="preview-steps"></pre></div>
+    </section>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
