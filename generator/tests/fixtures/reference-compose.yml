@@ -1,0 +1,79 @@
+services:
+  craftkeeper:
+    image: ghcr.io/carmelosantana/craftkeeper:v1.1.5
+    container_name: craftkeeper
+    restart: unless-stopped
+    depends_on:
+      - minecraft
+    ports:
+      - "8080:8080"
+    volumes:
+      - minecraft:/minecraft
+      - craftkeeper_data:/data
+    environment:
+      APP_URL: ${CRAFTKEEPER_APP_URL}
+      APP_KEY: ${CRAFTKEEPER_APP_KEY}
+      MINECRAFT_ROOT: /minecraft
+      DATA_ROOT: /data
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /data/database.sqlite
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      BROADCAST_CONNECTION: log
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  plugin-updater:
+    image: ghcr.io/carmelosantana/minecraft-plugin-updater:latest
+    pull_policy: always
+    restart: "no"
+    volumes:
+      - minecraft:/minecraft
+
+  minecraft:
+    image: 05jchambers/legendary-minecraft-geyser-floodgate:latest
+    container_name: minecraft
+    restart: unless-stopped
+    depends_on:
+      plugin-updater:
+        condition: service_completed_successfully
+    ports:
+      - "25565:25565"
+      - "19132:19132"
+      - "19132:19132/udp"
+    volumes:
+      - minecraft:/minecraft
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/bash", "/scripts/start.sh"]
+    environment:
+      Port: "25565"
+      BedrockPort: "19132"
+      TZ: America/New_York
+      MaxMemory: 4096
+      QuietCurl: "Y"
+
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - minecraft:/srv/minecraft
+      - filebrowser_config:/config
+      - filebrowser_database:/database
+    environment:
+      PUID: "999"
+      PGID: "999"
+      TZ: America/New_York
+    command: --config /config/filebrowser.json --database /database/filebrowser.db --root /srv
+
+volumes:
+  minecraft:
+  craftkeeper_data:
+  filebrowser_config:
+  filebrowser_database:
