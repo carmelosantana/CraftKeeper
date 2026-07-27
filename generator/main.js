@@ -1,4 +1,5 @@
 import { defaultState } from './lib/state.js';
+import { DEFAULTS } from './lib/services.js';
 import { generateSecrets } from './lib/secrets.js';
 import { buildCompose } from './lib/compose.js';
 import { buildEnv } from './lib/env.js';
@@ -27,7 +28,7 @@ function readForm() {
     const el = $(id);
     if (!el) continue;
     if (kind === 'checked') state[id] = el.checked;
-    else if (kind === 'number') state[id] = Number(el.value);
+    else if (kind === 'number') state[id] = el.value === '' ? DEFAULTS[id] : Number(el.value);
     else state[id] = el.value;
   }
 }
