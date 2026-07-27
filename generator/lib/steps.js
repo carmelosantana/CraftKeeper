@@ -1,0 +1,28 @@
+export function buildNextSteps(s) {
+  return [
+    '## Next steps',
+    '',
+    '1. Save `compose.yml` and `.env` together in the same directory.',
+    '',
+    '2. Enable RCON on the Minecraft server. After the first start creates',
+    '   `/minecraft/server.properties`, set these lines:',
+    '',
+    '   ```',
+    '   enable-rcon=true',
+    `   rcon.password=${s.secrets.rconPassword}`,
+    '   rcon.port=25575',
+    '   ```',
+    '',
+    '   then restart the `minecraft` service.',
+    '',
+    '3. Start the stack:',
+    '',
+    '   ```bash',
+    '   docker compose up -d',
+    '   ```',
+    '',
+    `4. Open ${s.domain} and complete onboarding. In the RCON step, use host`,
+    '   `minecraft`, port `25575`, and the password above.',
+    '',
+  ].join('\n');
+}
