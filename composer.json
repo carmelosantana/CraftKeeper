@@ -11,7 +11,7 @@
     "license": "AGPL-3.0-or-later",
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.15",
+        "carmelosantana/php-agents": "^0.16",
         "inertiajs/inertia-laravel": "^3.0",
         "justinrainbow/json-schema": "^6.10",
         "laravel/chisel": "^0.1.0",
